@@ -1,0 +1,9 @@
+requests>=2.31
+apscheduler>=3.10
+python-dotenv>=1.0
+holidays>=0.45
+pandas>=2.0
+pykrx>=1.0.45
+fastapi>=0.111
+uvicorn[standard]>=0.29
+python-telegram-bot>=21.0

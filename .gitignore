@@ -1,0 +1,35 @@
+# 환경변수 / 비밀키 — 절대 커밋 금지
+.env
+*.env
+
+# KIS 토큰 캐시
+_token_cache.json
+
+# 상태 DB
+state.db
+
+# 로그
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Next.js
+ui/dashboard/.next/
+ui/dashboard/node_modules/
+ui/dashboard/.env.local
