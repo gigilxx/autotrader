@@ -175,6 +175,7 @@ _HELP_TEXT = """\
   /kill          킬스위치 작동 (확인 필요)
   /resume        킬스위치 해제
   /trades        오늘 거래 내역
+  /market        시장 필터 상태 (KODEX200 vs MA)
   /watchlist     관심종목 목록
   /watch_add     종목 추가  예) /watch_add 000660
   /watch_del     종목 제거  예) /watch_del 000660
@@ -214,6 +215,18 @@ def _handle_command(chat_id: int, text: str) -> str:
 
     if cmd == "/help":
         return _HELP_TEXT
+
+    if cmd == "/market":
+        try:
+            with _db() as cx:
+                row = cx.execute(
+                    "SELECT value FROM control_flags WHERE key = 'market_filter_summary'"
+                ).fetchone()
+            if row:
+                return row["value"]
+            return "시장 필터 데이터 없음\n(오늘 08:55 prepare_day 이후 확인 가능)"
+        except Exception as e:
+            return f"조회 실패: {e}"
 
     if cmd == "/watchlist":
         wl = _get_watchlist()
@@ -289,7 +302,7 @@ def main() -> None:
 
     app = Application.builder().token(_TOKEN).build()
     for cmd in ("status", "kill", "confirm_kill", "resume", "trades", "help",
-                "watchlist", "watch_add", "watch_del", "k"):
+                "market", "watchlist", "watch_add", "watch_del", "k"):
         app.add_handler(CommandHandler(cmd, _reply))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _reply))
 
@@ -301,6 +314,7 @@ def main() -> None:
             BotCommand("confirm_kill", "킬스위치 최종 확인"),
             BotCommand("resume",       "킬스위치 해제"),
             BotCommand("trades",       "오늘 거래 내역"),
+            BotCommand("market",       "시장 필터 상태 (KODEX200 vs MA)"),
             BotCommand("watchlist",    "관심종목 목록"),
             BotCommand("watch_add",    "종목 추가  예) /watch_add 000660"),
             BotCommand("watch_del",    "종목 제거  예) /watch_del 000660"),

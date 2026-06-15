@@ -47,6 +47,9 @@ class StrategyConfig:
     k: float = 0.5                        # 돌파 계수
     force_close_time: time = time(15, 15)  # 마감 전 강제청산 시각
     entry_cutoff_time: time = time(14, 30)  # 이 시각 이후 신규 진입 금지
+    use_market_filter: bool = True         # 시장 필터 사용 여부
+    market_filter_symbol: str = "069500"   # KODEX 200
+    market_filter_ma_days: int = 20        # 이동평균 기간
 
 
 @dataclass

@@ -26,6 +26,7 @@ from .reconciliation import IdempotencyGuard, reconcile
 from .report import ReportCollector, TradeRecord
 from .risk_gate import RiskGate
 from .state import StateManager
+from .market_filter import MarketFilterResult, check_market
 from .volatility_breakout import (
     BreakoutDetector,
     compute_target_price,
@@ -83,6 +84,8 @@ class TradingEngine:
         self.local: dict[str, _Local] = {}
         self._today: Optional[date] = None
         self.reporter = ReportCollector()
+        self._market_ok: bool = True
+        self._market_filter: Optional[MarketFilterResult] = None
 
     # ---------------- 거래일 시작 ----------------
     def prepare_day(self, today: Optional[date] = None) -> None:
@@ -114,6 +117,27 @@ class TradingEngine:
 
         # 4.5) 리포트 수집기 초기화
         self.reporter.reset(today_d)
+
+        # 4.6) 시장 필터
+        if self.cfg.strategy.use_market_filter:
+            try:
+                result = check_market(
+                    self.router.broker,
+                    ma_days=self.cfg.strategy.market_filter_ma_days,
+                    symbol=self.cfg.strategy.market_filter_symbol,
+                )
+                self._market_ok = result.ok
+                self._market_filter = result
+                self.state.set_control_flag("market_filter_summary", result.summary())
+                self.health.record_api_success()
+                if not result.ok:
+                    self.alert.send(f"⚠️ 시장 필터 차단 — 오늘 신규 진입 없음\n{result.summary()}")
+            except Exception as e:  # noqa: BLE001
+                logger.error("시장 필터 조회 실패: %s — 거래 허용으로 처리", e)
+                self._market_ok = True
+                self.health.record_api_error()
+        else:
+            self._market_ok = True
 
         # 5) 목표가 계산
         self.detector.reset_day()
@@ -174,6 +198,8 @@ class TradingEngine:
                 self._watch_entry(sym, px, now)
 
     def _watch_entry(self, sym: str, px: int, now: time) -> None:
+        if not self._market_ok:
+            return
         if not entry_allowed_by_time(now, self.cfg.strategy):
             return
         target = self.targets.get(sym)
