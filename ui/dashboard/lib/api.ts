@@ -53,6 +53,7 @@ export const api = {
   pnlToday: () => _get<PnlToday>("/pnl/today"),
   trades: ()   => _get<{ trades: Trade[] }>("/trades"),
   logs: (n = 50) => _get<{ lines: string[] }>(`/logs?n=${n}`),
+  importantLogs: (n = 200) => _get<{ lines: string[]; note?: string }>(`/important-logs?n=${n}`),
   kill:   ()   => _post("/kill"),
   resume: ()   => _post("/resume"),
   closePosition: (symbol: string) => _post(`/positions/${symbol}/close`),

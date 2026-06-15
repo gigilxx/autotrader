@@ -29,9 +29,10 @@ from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-_DB_PATH     = Path(os.getenv("STATE_DB", "state.db"))
-_LOG_PATH    = Path(os.getenv("LOG_FILE", "logs/autotrader.log"))
-_SECRET_KEY  = os.getenv("UI_SECRET_KEY", "")
+_DB_PATH          = Path(os.getenv("STATE_DB", "state.db"))
+_LOG_PATH         = Path(os.getenv("LOG_FILE", "logs/autotrader.log"))
+_IMPORTANT_LOG    = Path(os.getenv("IMPORTANT_LOG", "logs/important.log"))
+_SECRET_KEY       = os.getenv("UI_SECRET_KEY", "")
 
 app = FastAPI(title="AutoTrader API", version="1.0")
 
@@ -162,6 +163,17 @@ def get_logs(n: int = 50) -> dict:
         return {"lines": []}
     try:
         lines = _LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
+        return {"lines": lines[-n:]}
+    except Exception as e:
+        return {"lines": [], "error": str(e)}
+
+
+@app.get("/important-logs")
+def get_important_logs(n: int = 200) -> dict:
+    if not _IMPORTANT_LOG.exists():
+        return {"lines": [], "note": "important.log 없음 — 봇 첫 실행 후 생성됩니다"}
+    try:
+        lines = _IMPORTANT_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
         return {"lines": lines[-n:]}
     except Exception as e:
         return {"lines": [], "error": str(e)}
