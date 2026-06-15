@@ -46,6 +46,11 @@ class _Local:
     """엔진이 추정하는 보유 상태."""
     entry_price: int
     qty: int
+    highest_px: int = 0  # 진입 후 최고가 (트레일링 스톱용)
+
+    def __post_init__(self) -> None:
+        if self.highest_px == 0:
+            self.highest_px = self.entry_price
 
 
 class TradingEngine:
@@ -238,8 +243,10 @@ class TradingEngine:
 
     def _manage_position(self, sym: str, px: int) -> None:
         pos = self.local[sym]
-        if should_stop_loss(pos.entry_price, px, self.cfg.risk.stop_loss_pct):
-            self._exit(sym, px, "stop_loss")
+        pos.highest_px = max(pos.highest_px, px)
+        trail_stop = int(pos.highest_px * (1 - self.cfg.risk.stop_loss_pct))
+        if px <= trail_stop:
+            self._exit(sym, px, "trailing_stop")
 
     def _exit(self, sym: str, px: int, reason: str) -> None:
         pos = self.local.get(sym)
@@ -287,6 +294,64 @@ class TradingEngine:
         logger.error("긴급: %s", msg)
         self.alert.send_urgent(f"긴급: {msg} — 즉시 확인 필요")
         self.kill.trip(f"강제청산 {_MAX_EXIT_RETRY}회 실패 — {sym}")
+
+    # ---------------- 외부 제어 ----------------
+    def close_position_by_symbol(self, symbol: str) -> None:
+        """UI/텔레그램 수동 청산 요청."""
+        if symbol not in self.local:
+            logger.warning("수동 청산 요청: %s 포지션 없음", symbol)
+            return
+        try:
+            px = self.data.get_current_price(symbol)
+        except Exception:
+            px = self.local[symbol].entry_price
+        self._exit(symbol, px, "manual_close")
+
+    def apply_runtime_flags(self) -> None:
+        """control_flags에서 런타임 설정 변경을 5초마다 반영."""
+        sm = self.state
+
+        # 수동 청산
+        for sym in list(self.local.keys()):
+            if sm.get_control_flag(f"force_close_{sym}"):
+                sm.clear_control_flag(f"force_close_{sym}")
+                self.close_position_by_symbol(sym)
+
+        # watchlist 변경 — 제거 종목 보유 시 즉시 청산, 추가 종목 목표가 계산 시도
+        watchlist_str = sm.get_control_flag("watchlist_override")
+        if watchlist_str is not None:
+            new_wl = [s.strip() for s in watchlist_str.split(",") if s.strip()]
+            if set(new_wl) != set(self.watchlist):
+                for sym in set(self.watchlist) - set(new_wl):
+                    if sym in self.local:
+                        self.close_position_by_symbol(sym)
+                    self.targets.pop(sym, None)
+                for sym in set(new_wl) - set(self.watchlist):
+                    if sym not in self.targets:
+                        try:
+                            prev = self.data.get_prev_day_bar(sym)
+                            q = self.data.get_quote(sym)
+                            self.targets[sym] = compute_target_price(
+                                prev.high, prev.low, q.open, self.cfg.strategy.k
+                            )
+                            logger.info("신규 종목 목표가 %s = %.0f", sym, self.targets[sym])
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning("목표가 계산 실패 %s: %s", sym, e)
+                self.watchlist = new_wl
+                logger.info("watchlist 업데이트: %s", self.watchlist)
+
+        # k값 변경 — 즉시 반영(다음 prepare_day부터 목표가에 적용)
+        k_str = sm.get_control_flag("k_value")
+        if k_str is not None:
+            try:
+                new_k = float(k_str)
+                if 0.1 <= new_k <= 1.0 and self.cfg.strategy.k != new_k:
+                    logger.info("k값 변경: %.2f → %.2f", self.cfg.strategy.k, new_k)
+                    self.cfg.strategy.k = new_k
+                    self.alert.send(f"k값 변경됨: {new_k}")
+            except ValueError:
+                pass
+            sm.clear_control_flag("k_value")
 
     # ---------------- 마감 강제청산 ----------------
     def force_close(self, now: time) -> None:

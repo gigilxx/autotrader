@@ -183,6 +183,22 @@ def kill(_auth: None = Depends(_require_auth)) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/positions/{symbol}/close")
+def close_position(symbol: str, _auth: None = Depends(_require_auth)) -> dict:
+    """특정 종목 수동 청산 요청. 봇이 5초 이내 감지."""
+    try:
+        with _db() as cx:
+            cx.execute(
+                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
+                "VALUES (?, '1', datetime('now'))",
+                (f"force_close_{symbol}",),
+            )
+            cx.commit()
+        return {"ok": True, "message": f"{symbol} 청산 요청 기록됨"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/resume")
 def resume(_auth: None = Depends(_require_auth)) -> dict:
     """킬스위치 해제 요청을 state.db에 기록."""

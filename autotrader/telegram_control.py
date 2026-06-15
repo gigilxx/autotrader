@@ -41,6 +41,29 @@ _DB_PATH = Path(os.getenv("STATE_DB", "state.db"))
 _PENDING_KILL: set[int] = set()  # /kill 확인 대기 중인 chat_id
 
 
+def _get_watchlist() -> list[str]:
+    try:
+        with _db() as cx:
+            row = cx.execute(
+                "SELECT value FROM control_flags WHERE key = 'watchlist_override'"
+            ).fetchone()
+            if row:
+                return [s.strip() for s in row["value"].split(",") if s.strip()]
+    except Exception:
+        pass
+    return [s.strip() for s in os.getenv("WATCHLIST", "005930").split(",") if s.strip()]
+
+
+def _set_watchlist(symbols: list[str]) -> None:
+    with _db() as cx:
+        cx.execute(
+            "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
+            "VALUES ('watchlist_override', ?, datetime('now'))",
+            (",".join(symbols),),
+        )
+        cx.commit()
+
+
 def _require_env() -> None:
     missing = [k for k in ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID") if not os.getenv(k)]
     if missing:
@@ -148,11 +171,15 @@ def _build_trades_text() -> str:
 
 _HELP_TEXT = """\
 명령어 목록:
-  /status      현재 봇 상태
-  /kill        킬스위치 작동 (확인 필요)
-  /resume      킬스위치 해제
-  /trades      오늘 거래 내역
-  /help        이 도움말"""
+  /status        현재 봇 상태
+  /kill          킬스위치 작동 (확인 필요)
+  /resume        킬스위치 해제
+  /trades        오늘 거래 내역
+  /watchlist     관심종목 목록
+  /watch_add     종목 추가  예) /watch_add 000660
+  /watch_del     종목 제거  예) /watch_del 000660
+  /k             돌파계수 조회·변경  예) /k 0.5
+  /help          이 도움말"""
 
 
 def _handle_command(chat_id: int, text: str) -> str:
@@ -160,7 +187,7 @@ def _handle_command(chat_id: int, text: str) -> str:
 
     if str(chat_id) != _CHAT_ID:
         logger.warning("미허가 chat_id: %s (허가된 ID: %s)", chat_id, _CHAT_ID)
-        return f"⛔ 허가되지 않은 사용자 (your id: {chat_id})"
+        return "⛔ 허가되지 않은 사용자"
 
     if cmd == "/status":
         return _build_status_text()
@@ -188,6 +215,54 @@ def _handle_command(chat_id: int, text: str) -> str:
     if cmd == "/help":
         return _HELP_TEXT
 
+    if cmd == "/watchlist":
+        wl = _get_watchlist()
+        return "관심종목:\n" + "\n".join(f"  {s}" for s in wl)
+
+    if cmd in ("/watch_add", "/watch_del"):
+        parts = text.strip().split()
+        if len(parts) < 2:
+            return f"사용법: {cmd} 종목코드  예) {cmd} 000660"
+        sym = parts[1].strip().upper()
+        wl = _get_watchlist()
+        if cmd == "/watch_add":
+            if sym not in wl:
+                wl.append(sym)
+                _set_watchlist(wl)
+            return f"✅ {sym} 추가 (다음 장 목표가 계산)\n관심종목: {', '.join(wl)}"
+        else:
+            if sym in wl:
+                wl.remove(sym)
+                _set_watchlist(wl)
+            return f"✅ {sym} 제거 (보유 중이면 즉시 청산)\n관심종목: {', '.join(wl)}"
+
+    if cmd == "/k":
+        parts = text.strip().split()
+        if len(parts) < 2:
+            try:
+                with _db() as cx:
+                    row = cx.execute(
+                        "SELECT value FROM control_flags WHERE key = 'k_value'"
+                    ).fetchone()
+                    current = row["value"] if row else os.getenv("K_VALUE", "0.5")
+            except Exception:
+                current = "?"
+            return f"현재 k값: {current}\n변경: /k 0.5  (0.1~1.0, 다음 prepare_day 적용)"
+        try:
+            k = float(parts[1])
+            if not (0.1 <= k <= 1.0):
+                return "k값은 0.1~1.0 사이여야 합니다."
+        except ValueError:
+            return f"잘못된 값: {parts[1]}"
+        with _db() as cx:
+            cx.execute(
+                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
+                "VALUES ('k_value', ?, datetime('now'))",
+                (str(k),),
+            )
+            cx.commit()
+        return f"✅ k값 → {k} (오늘 08:55 prepare_day 또는 다음 장 적용)"
+
     _PENDING_KILL.discard(chat_id)
     return f"알 수 없는 명령: {cmd}\n/help 로 도움말 확인"
 
@@ -213,7 +288,8 @@ def main() -> None:
         await update.message.reply_text(resp)
 
     app = Application.builder().token(_TOKEN).build()
-    for cmd in ("status", "kill", "confirm_kill", "resume", "trades", "help"):
+    for cmd in ("status", "kill", "confirm_kill", "resume", "trades", "help",
+                "watchlist", "watch_add", "watch_del", "k"):
         app.add_handler(CommandHandler(cmd, _reply))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _reply))
 
@@ -225,6 +301,10 @@ def main() -> None:
             BotCommand("confirm_kill", "킬스위치 최종 확인"),
             BotCommand("resume",       "킬스위치 해제"),
             BotCommand("trades",       "오늘 거래 내역"),
+            BotCommand("watchlist",    "관심종목 목록"),
+            BotCommand("watch_add",    "종목 추가  예) /watch_add 000660"),
+            BotCommand("watch_del",    "종목 제거  예) /watch_del 000660"),
+            BotCommand("k",            "돌파계수 조회·변경  예) /k 0.5"),
             BotCommand("help",         "명령어 목록"),
         ])
 

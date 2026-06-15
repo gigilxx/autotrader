@@ -39,8 +39,8 @@
   </Settings>
   <Actions>
     <Exec>
-      <Command>D:\source\autotrader\run.bat</Command>
-      <WorkingDirectory>D:\source\autotrader</WorkingDirectory>
+      <Command>C:\repo\autotrader\run.bat</Command>
+      <WorkingDirectory>C:\repo\autotrader</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

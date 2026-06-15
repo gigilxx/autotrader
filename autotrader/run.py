@@ -163,6 +163,7 @@ def main() -> None:
             sm.clear_control_flag("resume_requested")
             engine.kill.reset()
             engine.alert.send("킬스위치 해제 (UI/Telegram 요청)")
+        engine.apply_runtime_flags()
 
     scheduler.add_job(prepare_day_job,  "cron", day_of_week="mon-fri", hour=8,  minute=55, id="prepare_day")
     scheduler.add_job(tick_job,         "interval", seconds=POLL_INTERVAL_SEC,  id="tick")

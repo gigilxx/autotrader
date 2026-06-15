@@ -95,7 +95,7 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold text-gray-400 mb-2">보유 포지션</h2>
               <div className="grid gap-3 md:grid-cols-2">
                 {status.positions.map((p) => (
-                  <PositionCard key={p.symbol} position={p} />
+                  <PositionCard key={p.symbol} position={p} onClose={refresh} />
                 ))}
               </div>
             </section>

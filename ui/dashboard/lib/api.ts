@@ -55,5 +55,6 @@ export const api = {
   logs: (n = 50) => _get<{ lines: string[] }>(`/logs?n=${n}`),
   kill:   ()   => _post("/kill"),
   resume: ()   => _post("/resume"),
+  closePosition: (symbol: string) => _post(`/positions/${symbol}/close`),
   wsUrl: ()    => `${API.replace(/^http/, "ws")}/ws/status`,
 };
