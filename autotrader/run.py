@@ -46,19 +46,52 @@ MARKET_CLOSE = time(15, 30)
 POLL_INTERVAL_SEC = int(os.getenv("POLL_SEC", "2"))  # REST 폴링 간격 (모의: 0.5초/콜 × 종목수 고려)
 
 
+class _ImportantFilter(logging.Filter):
+    """WARNING 이상 + 주요 비즈니스 이벤트를 important.log로 보내는 필터."""
+    _KEYWORDS = (
+        "진입", "청산", "부분 체결", "미체결",
+        "킬스위치", "trailing_stop", "force_close", "manual_close",
+        "거래일 시작", "일일 리포트", "리포트 내용",
+        "시장 필터", "watchlist", "k값",
+        "스케줄러 시작", "스케줄러 종료",
+        "이월 포지션", "관심종목",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        msg = record.getMessage()
+        return any(kw in msg for kw in self._KEYWORDS)
+
+
 def _setup_logging() -> None:
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    # 전체 로그 (INFO+)
     handler = logging.handlers.RotatingFileHandler(
         log_dir / "autotrader.log",
         maxBytes=10 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
     )
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    handler.setFormatter(fmt)
+
+    # 중요 이벤트 전용 (WARNING+ 또는 비즈니스 키워드 포함 INFO)
+    important = logging.handlers.RotatingFileHandler(
+        log_dir / "important.log",
+        maxBytes=5 * 1024 * 1024,
+        backupCount=30,
+        encoding="utf-8",
+    )
+    important.setFormatter(fmt)
+    important.addFilter(_ImportantFilter())
+
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.addHandler(handler)
+    root.addHandler(important)
     root.addHandler(logging.StreamHandler())
 
 
@@ -149,7 +182,8 @@ def main() -> None:
         if not _is_trading_day():
             return
         logger.info("=== 일일 리포트 ===")
-        engine.daily_report()
+        report = engine.daily_report()
+        logger.info("리포트 내용:\n%s", report)
         scheduler.shutdown(wait=False)
 
     @_guard
@@ -158,10 +192,12 @@ def main() -> None:
         sm = engine.state
         if sm.get_control_flag("kill_requested") and not engine.kill.halted:
             sm.clear_control_flag("kill_requested")
+            logger.warning("킬스위치 트립 — UI/Telegram 요청")
             engine.kill.trip("UI/Telegram 킬스위치 요청")
         if sm.get_control_flag("resume_requested") and engine.kill.halted:
             sm.clear_control_flag("resume_requested")
             engine.kill.reset()
+            logger.warning("킬스위치 해제 — UI/Telegram 요청")
             engine.alert.send("킬스위치 해제 (UI/Telegram 요청)")
         engine.apply_runtime_flags()
 

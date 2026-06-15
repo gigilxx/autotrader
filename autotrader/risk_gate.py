@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
@@ -15,6 +16,8 @@ from typing import Optional
 from .config import RiskConfig
 from .kill_switch import KillSwitch
 from .models import AccountSnapshot, OrderRequest, Side
+
+logger = logging.getLogger("autotrader.risk_gate")
 
 
 @dataclass
@@ -48,10 +51,12 @@ class RiskGate:
         """청산 실현손익(비용 차감 후) 반영. 한도 도달 시 킬스위치."""
         self._realized_pnl_today += pnl_won
         if self._realized_pnl_today <= -self.cfg.daily_max_loss_won:
-            self.kill.trip(
+            msg = (
                 f"일일 최대손실 도달: {self._realized_pnl_today:,}원 "
                 f"(한도 -{self.cfg.daily_max_loss_won:,}원)"
             )
+            logger.warning("킬스위치 트립 — %s", msg)
+            self.kill.trip(msg)
 
     @property
     def realized_pnl_today(self) -> int:

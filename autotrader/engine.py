@@ -32,7 +32,6 @@ from .volatility_breakout import (
     compute_target_price,
     entry_allowed_by_time,
     should_force_close,
-    should_stop_loss,
     stop_price_of,
 )
 from .position_sizing import calc_position_size
@@ -280,7 +279,7 @@ class TradingEngine:
             return
 
         oid = IdempotencyGuard.make_order_id(sym, "sell", _bar_ts(), reason)
-        order = OrderRequest(sym, Side.SELL, pos.qty, px, oid, reason)
+        order = OrderRequest(sym, Side.SELL, pos.qty, None, oid, reason)  # 시장가 — 청산은 체결 보장 우선
 
         for attempt in range(1, _MAX_EXIT_RETRY + 1):
             d = self.router.place(order)

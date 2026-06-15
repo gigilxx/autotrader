@@ -7,10 +7,13 @@
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from .kill_switch import KillSwitch
+
+logger = logging.getLogger("autotrader.auto_halt")
 
 
 @dataclass
@@ -29,7 +32,9 @@ class HealthMonitor:
     def record_api_error(self) -> None:
         self._consec_errors += 1
         if self._consec_errors >= self.cfg.max_consecutive_api_errors:
-            self.kill.trip(f"API 연속 에러 {self._consec_errors}회")
+            msg = f"API 연속 에러 {self._consec_errors}회"
+            logger.warning("킬스위치 트립 — %s", msg)
+            self.kill.trip(msg)
 
     def record_api_success(self) -> None:
         self._consec_errors = 0
@@ -43,4 +48,6 @@ class HealthMonitor:
         if self._last_quote_ts is None:
             return
         if now_ts - self._last_quote_ts > self.cfg.max_quote_staleness_sec:
-            self.kill.trip("시세 데이터 정지(staleness)")
+            msg = f"시세 데이터 정지 ({now_ts - self._last_quote_ts:.0f}초 갱신 없음)"
+            logger.warning("킬스위치 트립 — %s", msg)
+            self.kill.trip(msg)
