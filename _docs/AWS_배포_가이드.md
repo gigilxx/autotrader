@@ -96,7 +96,23 @@ Windows + R → mstsc 실행
 
 ---
 
-## 4. 소프트웨어 설치
+## 4. 타임존 설정 (필수)
+
+**AWS EC2 Windows Server는 기본 타임존이 UTC** — 한국 시간(KST, UTC+9)과 9시간 차이남.  
+Task Scheduler 트리거가 시스템 시간 기준이므로 반드시 변경해야 함.
+
+```powershell
+# 한국 표준시로 변경
+Set-TimeZone -Id "Korea Standard Time"
+
+# 확인 (KST 현재 시각 출력되면 정상)
+Get-Date
+Get-TimeZone
+```
+
+---
+
+## 5. 소프트웨어 설치
 
 RDP로 접속한 Windows Server 내에서 실행.  
 모든 명령은 **PowerShell(관리자 권한)** 에서 실행.
@@ -146,7 +162,7 @@ choco install nssm -y
 
 ---
 
-## 5. 코드 배포
+## 6. 코드 배포
 
 ### 5-1. 저장소 클론
 
@@ -191,7 +207,7 @@ npm run build
 
 ---
 
-## 6. 봇 자동 시작 — Task Scheduler 등록
+## 7. 봇 자동 시작 — Task Scheduler 등록
 
 ### 6-1. XML 파일 경로 확인
 
@@ -215,7 +231,7 @@ schtasks /Query /TN "AutoTraderBot" /FO LIST
 
 ---
 
-## 7. FastAPI 서비스 등록 (NSSM)
+## 8. FastAPI 서비스 등록 (NSSM)
 
 서버 재부팅 후에도 FastAPI가 자동으로 켜지도록 Windows 서비스로 등록.
 
@@ -238,7 +254,7 @@ nssm status AutoTraderAPI
 
 ---
 
-## 8. Next.js 대시보드 서비스 등록 (NSSM)
+## 9. Next.js 대시보드 서비스 등록 (NSSM)
 
 ```powershell
 # npm 경로 확인 (보통 C:\Program Files\nodejs\npm.cmd)
@@ -261,7 +277,7 @@ nssm status AutoTraderDashboard
 
 ---
 
-## 9. Windows 방화벽 규칙 추가
+## 10. Windows 방화벽 규칙 추가
 
 EC2 보안 그룹 외에 Windows 방화벽도 허용 필요.
 
@@ -275,7 +291,7 @@ netsh advfirewall firewall add rule name="AutoTrader Dashboard" dir=in action=al
 
 ---
 
-## 10. 동작 확인
+## 11. 동작 확인
 
 ### 10-1. 서비스 상태 확인
 
@@ -303,7 +319,7 @@ Get-Service AutoTraderAPI, AutoTraderDashboard
 
 ---
 
-## 11. 코드 업데이트 방법
+## 12. 코드 업데이트 방법
 
 로컬에서 수정 후 GitHub에 push → 서버에서 pull:
 
@@ -333,7 +349,7 @@ schtasks /Run /TN "AutoTraderBot"
 
 ---
 
-## 12. 비용 절약 팁
+## 13. 비용 절약 팁
 
 | 방법 | 절약 효과 |
 |------|---------|
@@ -346,7 +362,7 @@ schtasks /Run /TN "AutoTraderBot"
 
 ---
 
-## 13. 트러블슈팅
+## 14. 트러블슈팅
 
 | 증상 | 원인 | 해결 |
 |------|------|------|
@@ -359,7 +375,7 @@ schtasks /Run /TN "AutoTraderBot"
 
 ---
 
-## 14. 보안 체크리스트
+## 15. 보안 체크리스트
 
 - [ ] 보안 그룹 인바운드 규칙이 "내 IP"로만 제한되어 있는가?
 - [ ] `.env` 파일이 `.gitignore`에 포함되어 있는가?
