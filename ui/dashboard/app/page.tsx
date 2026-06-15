@@ -24,26 +24,42 @@ export default function DashboardPage() {
   useEffect(() => {
     refresh();
 
-    // WebSocket 실시간 상태 수신
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    function startPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(refresh, 10_000);
+    }
+
     function connect() {
-      const ws = new WebSocket(api.wsUrl());
-      wsRef.current = ws;
-      ws.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data) as BotStatus;
-          setStatus(data);
-          setError("");
-        } catch {}
-      };
-      ws.onerror = () => setError("WebSocket 연결 오류 — REST 폴링으로 전환");
-      ws.onclose = () => {
-        // 재연결
-        setTimeout(connect, 5000);
-      };
+      try {
+        const ws = new WebSocket(api.wsUrl());
+        wsRef.current = ws;
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data) as BotStatus;
+            setStatus(data);
+            setError("");
+          } catch {}
+        };
+        ws.onerror = () => {
+          setError("WebSocket 연결 오류 — REST 폴링으로 전환");
+          ws.close();
+          startPolling();
+        };
+        ws.onclose = () => {
+          if (!pollTimer) setTimeout(connect, 5000);
+        };
+      } catch {
+        startPolling();
+      }
     }
     connect();
 
-    return () => { wsRef.current?.close(); };
+    return () => {
+      wsRef.current?.close();
+      if (pollTimer) clearInterval(pollTimer);
+    };
   }, [refresh]);
 
   const pnlColor = status && status.realized_pnl > 0
