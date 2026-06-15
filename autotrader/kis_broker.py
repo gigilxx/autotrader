@@ -97,7 +97,7 @@ class KISBroker:
             "appsecret": self.creds.appsecret,
         }
         try:
-            r = requests.post(url, headers=headers, data=json.dumps(body), timeout=10)
+            r = requests.post(url, headers=headers, data=json.dumps(body), timeout=30)
         except requests.RequestException as e:
             raise KISError(f"토큰 요청 실패: {e}") from e
 
@@ -136,7 +136,7 @@ class KISBroker:
                 f"{self.base_url}{path}",
                 headers=self._headers(tr_id),
                 params=params,
-                timeout=10,
+                timeout=30,
             )
         except requests.RequestException as e:
             raise KISError(f"GET 실패 {path}: {e}") from e
@@ -151,7 +151,7 @@ class KISBroker:
                 f"{self.base_url}{path}",
                 headers=self._headers(tr_id),
                 data=json.dumps(body),
-                timeout=10,
+                timeout=30,
             )
         except requests.RequestException as e:
             raise KISError(f"POST 실패 {path}: {e}") from e
@@ -282,6 +282,29 @@ class KISBroker:
             raise KISError(f"주문 거부: {data.get('msg_cd')} {data.get('msg1')}")
 
         return data.get("output", {}).get("ODNO", "")
+
+    def cancel_order(self, odno: str, symbol: str, qty: int) -> bool:
+        """미체결 주문 취소. 성공 시 True 반환.
+
+        tr_id: 실전 TTTC0803U / 모의 VTTC0803U
+        RVSE_CNCL_DVSN_CD: 02 = 취소
+        """
+        tr_id = "TTTC0803U" if self.creds.env == Environment.REAL else "VTTC0803U"
+        body = {
+            "CANO": self.creds.cano,
+            "ACNT_PRDT_CD": self.creds.acnt_prdt_cd,
+            "KRX_FWDG_ORD_ORGNO": "",
+            "ORGN_ODNO": odno,
+            "ORD_DVSN": "00",
+            "RVSE_CNCL_DVSN_CD": "02",
+            "ORD_QTY": str(qty),
+            "ORD_UNPR": "0",
+            "QTY_ALL_ORD_YN": "Y",
+            "EXCG_ID_DVSN_CD": "KRX",
+            "PDNO": symbol,
+        }
+        data = self._post("/uapi/domestic-stock/v1/trading/order-rvsecncl", tr_id, body)
+        return str(data.get("rt_cd")) == "0"
 
     # ---------------- 체결 조회 ----------------
     def get_order_fill(self, odno: str, symbol: str) -> FilledOrder:

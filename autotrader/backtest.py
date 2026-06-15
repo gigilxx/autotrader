@@ -219,6 +219,9 @@ def print_summary_table(results: list[BacktestResult]) -> None:
 
 
 def main() -> None:
+    from dotenv import load_dotenv
+    load_dotenv()
+
     parser = argparse.ArgumentParser(description="변동성 돌파 전략 백테스트")
     parser.add_argument("--symbol", default="005930",
                         help="종목코드, 쉼표 구분 가능 (예: 005930,000660)")

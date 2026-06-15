@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import time as _time
 from datetime import datetime, time

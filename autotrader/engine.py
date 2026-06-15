@@ -206,7 +206,17 @@ class TradingEngine:
                     filled_qty = fill.filled_qty
                     fill_price = fill.avg_price if fill.avg_price > 0 else float(px)
                     if fill.status == "partial":
-                        logger.warning("부분 체결 %s: %d/%d주", sym, filled_qty, sizing.qty)
+                        logger.warning("부분 체결 %s: %d/%d주 — 잔량 취소", sym, filled_qty, sizing.qty)
+                        try:
+                            self.router.broker.cancel_order(d.odno, sym, sizing.qty)
+                        except Exception as ce:  # noqa: BLE001
+                            logger.warning("잔량 취소 실패 %s: %s", sym, ce)
+                else:
+                    try:
+                        ok = self.router.broker.cancel_order(d.odno, sym, sizing.qty)
+                        logger.info("미체결 주문 취소 %s ODNO=%s → %s", sym, d.odno, "성공" if ok else "실패")
+                    except Exception as ce:  # noqa: BLE001
+                        logger.warning("미체결 취소 실패 %s ODNO=%s: %s", sym, d.odno, ce)
             except Exception as e:  # noqa: BLE001
                 logger.warning("체결 조회 실패 %s: %s — 요청 수량으로 가정", sym, e)
 

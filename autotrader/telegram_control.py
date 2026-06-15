@@ -25,6 +25,9 @@ import logging
 import os
 import sqlite3
 import sys
+
+from dotenv import load_dotenv
+load_dotenv()
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -156,7 +159,8 @@ def _handle_command(chat_id: int, text: str) -> str:
     cmd = text.strip().split()[0].lower()
 
     if str(chat_id) != _CHAT_ID:
-        return "⛔ 허가되지 않은 사용자"
+        logger.warning("미허가 chat_id: %s (허가된 ID: %s)", chat_id, _CHAT_ID)
+        return f"⛔ 허가되지 않은 사용자 (your id: {chat_id})"
 
     if cmd == "/status":
         return _build_status_text()
@@ -212,6 +216,19 @@ def main() -> None:
     for cmd in ("status", "kill", "confirm_kill", "resume", "trades", "help"):
         app.add_handler(CommandHandler(cmd, _reply))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _reply))
+
+    async def _set_commands(_app):
+        from telegram import BotCommand
+        await _app.bot.set_my_commands([
+            BotCommand("status",       "현재 봇 상태·포지션·손익"),
+            BotCommand("kill",         "킬스위치 작동 (확인 필요)"),
+            BotCommand("confirm_kill", "킬스위치 최종 확인"),
+            BotCommand("resume",       "킬스위치 해제"),
+            BotCommand("trades",       "오늘 거래 내역"),
+            BotCommand("help",         "명령어 목록"),
+        ])
+
+    app.post_init = _set_commands
 
     logger.info("텔레그램 봇 시작 (chat_id=%s)", _CHAT_ID)
     app.run_polling(allowed_updates=["message"])
