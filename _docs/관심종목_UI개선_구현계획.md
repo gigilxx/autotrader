@@ -174,6 +174,46 @@ def set_watchlist(body: WatchlistBody, _auth=Depends(_require_auth)) -> dict:
 >추가</button>
 ```
 
+#### 종목 제거 시 포지션 보유 확인 (인라인 확인 UI)
+
+브라우저 기본 `confirm()` 대신 **인라인 확인 상태**를 사용한다.  
+제거 버튼 클릭 시 해당 종목 카드가 확인 모드로 전환되고,  
+사용자가 명시적으로 확인해야만 제거가 진행된다.
+
+**포지션 없는 종목 제거 흐름:**
+```
+[제거] 클릭 → 즉시 제거 (확인 불필요)
+```
+
+**포지션 있는 종목 제거 흐름:**
+```
+[제거] 클릭
+  → 카드가 경고 모드로 전환
+  → "⚠️ 보유 포지션이 있습니다. 제거 시 즉시 청산됩니다."
+  → [취소]  [청산 후 제거] 버튼 표시
+  → [청산 후 제거] 클릭 시만 제거 진행
+  → [취소] 또는 외부 클릭 시 원래 상태로 복귀
+```
+
+```tsx
+// 확인 대기 중인 종목 코드를 저장하는 state
+const [pendingRemove, setPendingRemove] = useState<string | null>(null);
+
+function remove(sym: string) {
+  const hasPos = positions.some((p) => p.symbol === sym);
+  if (hasPos) {
+    setPendingRemove(sym);   // 확인 모드 진입
+  } else {
+    doRemove(sym);           // 포지션 없으면 즉시 제거
+  }
+}
+
+async function doRemove(sym: string) {
+  setPendingRemove(null);
+  // POST /watchlist (sym 제외한 목록)
+}
+```
+
 **`autotrader/telegram_control.py`**
 - `/watch_add` 핸들러에서 한도 체크
 
@@ -183,6 +223,36 @@ if cmd == "/watch_add":
     max_wl = 4 if os.getenv("KIS_ENV", "mock").lower() != "real" else 40
     if len(wl) >= max_wl:
         return f"⛔ 최대 {max_wl}종목 한도 초과 (현재 {len(wl)}개)"
+    ...
+```
+
+- `/watch_del` 핸들러에서 포지션 보유 여부 안내
+
+텔레그램은 인라인 UI가 없으므로 안내 메시지 → 별도 확인 명령어(`/watch_del_confirm`) 2단계로 처리한다.
+
+```python
+_PENDING_WATCH_DEL: dict[int, str] = {}  # chat_id → symbol
+
+if cmd == "/watch_del":
+    ...
+    # 보유 포지션 확인
+    pos_rows = cx.execute(
+        "SELECT symbol FROM positions WHERE date=? AND symbol=?", (today, sym)
+    ).fetchone()
+    if pos_rows:
+        _PENDING_WATCH_DEL[chat_id] = sym
+        return (
+            f"⚠️ {sym} 보유 포지션이 있습니다. 제거 시 즉시 청산됩니다.\n"
+            f"/watch_del_confirm {sym}  으로 최종 확인하세요."
+        )
+    # 포지션 없으면 즉시 제거
+    ...
+
+if cmd == "/watch_del_confirm":
+    pending = _PENDING_WATCH_DEL.pop(chat_id, None)
+    if pending != sym:
+        return "먼저 /watch_del {sym} 을 입력하세요."
+    # 제거 진행
     ...
 ```
 
@@ -290,6 +360,7 @@ interface Props {
 
 #### `ui/dashboard/app/watchlist/page.tsx` 변경 후 UI
 
+**평상시:**
 ```
 ┌─────────────────────────────────────────────────────┐
 │ 관심종목                      모의투자 — 2 / 4       │
@@ -305,8 +376,21 @@ interface Props {
 │   └────────────────────────────────┘                │
 ├─────────────────────────────────────────────────────┤
 │ 목록 (2개)                                           │
-│  삼성전자 005930        [강제 진입] [제거]           │
+│  삼성전자 005930                  [강제 진입] [제거] │
 │  SK하이닉스 000660  보유 10주 @ 180,000원  [청산] [제거] │
+└─────────────────────────────────────────────────────┘
+```
+
+**SK하이닉스 [제거] 클릭 후 — 인라인 확인 모드:**
+```
+┌─────────────────────────────────────────────────────┐
+│ 목록 (2개)                                           │
+│  삼성전자 005930                  [강제 진입] [제거] │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ ⚠️  SK하이닉스 000660                           │ │
+│ │    보유 포지션이 있습니다. 제거 시 즉시 청산됩니다. │ │
+│ │                          [취소]  [청산 후 제거]  │ │
+│ └─────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -332,3 +416,5 @@ interface Props {
 - [ ] `data/stock_master.json` 미존재 시 FastAPI 정상 기동 보장 (`_STOCK_MASTER = []` fallback 처리)
 - [ ] 직접 6자리 코드 입력 → 목록에 없으면 name은 코드 그대로 표시 (fallback)
 - [ ] `WATCHLIST` 환경변수는 optional로 유지 (기존 배포 환경 하위호환)
+- [ ] 종목 제거 시 포지션 보유 여부 확인 후 인라인 확인(UI) / 2단계 명령어(텔레그램) 처리
+- [ ] 텔레그램 `/watch_del_confirm` 명령어 추가 및 `_HELP_TEXT` 업데이트 필요
