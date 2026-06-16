@@ -27,12 +27,9 @@ import asyncio
 import json
 import os
 import re
-import sqlite3
-from contextlib import contextmanager
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
-from typing import Generator
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,19 +59,6 @@ app.add_middleware(
 _bearer = HTTPBearer(auto_error=False)
 
 
-# ─── DB 헬퍼 ──────────────────────────────────────────────
-@contextmanager
-def _db() -> Generator[sqlite3.Connection, None, None]:
-    cx = sqlite3.connect(str(_DB_PATH), timeout=5, check_same_thread=False)
-    cx.row_factory = sqlite3.Row
-    # WAL 모드: 읽기/쓰기 동시성 향상
-    cx.execute("PRAGMA journal_mode=WAL")
-    try:
-        yield cx
-    finally:
-        cx.close()
-
-
 def _today_str() -> str:
     return date.today().strftime("%Y%m%d")
 
@@ -91,31 +75,17 @@ def _require_auth(creds: HTTPAuthorizationCredentials | None = Depends(_bearer))
 def _get_status_dict() -> dict:
     today = _today_str()
     try:
-        with _db() as cx:
-            row = cx.execute(
-                "SELECT trades_today, realized_pnl_today FROM daily_state WHERE date = ?",
-                (today,),
-            ).fetchone()
-            trades_today = row["trades_today"] if row else 0
-            realized_pnl = row["realized_pnl_today"] if row else 0
-
-            kill_flag = cx.execute(
-                "SELECT value FROM control_flags WHERE key IN ('kill_requested', 'kill_active')"
-            ).fetchone()
-            is_killed = kill_flag is not None
-
-            positions = cx.execute(
-                "SELECT symbol, entry_price, qty FROM positions WHERE date = ?",
-                (today,),
-            ).fetchall()
-
+        today_d = date.fromisoformat(f"{today[:4]}-{today[4:6]}-{today[6:]}")
+        ds = _sm.load_daily_state(today_d)
+        positions = _sm.load_positions(today_d)
+        is_killed = _sm.is_kill_active()
         return {
             "date": today,
             "is_killed": is_killed,
-            "trades_today": trades_today,
-            "realized_pnl": realized_pnl,
+            "trades_today": ds.trades_today,
+            "realized_pnl": ds.realized_pnl_today,
             "position_count": len(positions),
-            "positions": [dict(p) for p in positions],
+            "positions": [{"symbol": p.symbol, "entry_price": p.entry_price, "qty": p.qty} for p in positions],
         }
     except Exception as e:
         return {"error": str(e)}
@@ -184,16 +154,8 @@ def get_pnl_today() -> dict:
 @app.get("/trades")
 def get_trades() -> dict:
     today = _today_str()
-    try:
-        with _db() as cx:
-            rows = cx.execute(
-                "SELECT exit_time, symbol, entry_price, exit_price, qty, pnl, reason "
-                "FROM trades WHERE date = ? ORDER BY id",
-                (today,),
-            ).fetchall()
-        return {"trades": [dict(r) for r in rows]}
-    except Exception as e:
-        return {"trades": [], "error": str(e)}
+    today_d = date.fromisoformat(f"{today[:4]}-{today[4:6]}-{today[6:]}")
+    return {"trades": _sm.get_trades(today_d)}
 
 
 @app.get("/logs")
@@ -288,36 +250,26 @@ def set_watchlist(body: WatchlistBody, _auth: None = Depends(_require_auth)) -> 
 # ─── 시장 필터 ────────────────────────────────────────────
 @app.get("/market-filter")
 def get_market_filter() -> dict:
-    with _db() as cx:
-        summary_row = cx.execute(
-            "SELECT value, updated_at FROM control_flags WHERE key = 'market_filter_summary'"
-        ).fetchone()
-        ok_row = cx.execute(
-            "SELECT value FROM control_flags WHERE key = 'market_filter_ok'"
-        ).fetchone()
-    if not summary_row:
+    summary_entry = _sm.get_control_flag_with_time("market_filter_summary")
+    if not summary_entry:
         return {"available": False, "summary": None, "ok": None, "updated_at": None}
+    ok_val = _sm.get_control_flag("market_filter_ok")
     return {
         "available": True,
-        "summary": summary_row["value"],
-        "ok": ok_row["value"] == "1" if ok_row else None,
-        "updated_at": summary_row["updated_at"],
+        "summary": summary_entry["value"],
+        "ok": ok_val == "1" if ok_val is not None else None,
+        "updated_at": summary_entry["updated_at"],
     }
 
 
 # ─── k값 ──────────────────────────────────────────────────
 @app.get("/config/k")
 def get_k_value() -> dict:
-    with _db() as cx:
-        pending_row = cx.execute(
-            "SELECT value FROM control_flags WHERE key = 'k_value'"
-        ).fetchone()
-        current_row = cx.execute(
-            "SELECT value FROM control_flags WHERE key = 'current_k'"
-        ).fetchone()
+    pending = _sm.get_control_flag("k_value")
+    current = _sm.get_control_flag("current_k")
     return {
-        "current_k": float(current_row["value"]) if current_row else None,
-        "pending_k": float(pending_row["value"]) if pending_row else None,
+        "current_k": float(current) if current is not None else None,
+        "pending_k": float(pending) if pending is not None else None,
     }
 
 

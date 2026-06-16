@@ -249,6 +249,30 @@ class StateManager:
         except Exception as e:
             logger.error("control_flag 삭제 실패 key=%s: %s", key, e)
 
+    def get_control_flag_with_time(self, key: str) -> Optional[dict]:
+        """control_flag의 value + updated_at 반환. 없으면 None."""
+        try:
+            with self._conn() as cx:
+                row = cx.execute(
+                    "SELECT value, updated_at FROM control_flags WHERE key = ?", (key,)
+                ).fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.warning("control_flag 조회 실패 key=%s: %s", key, e)
+            return None
+
+    def is_kill_active(self) -> bool:
+        """kill_requested 또는 kill_active 플래그 존재 여부."""
+        try:
+            with self._conn() as cx:
+                row = cx.execute(
+                    "SELECT 1 FROM control_flags WHERE key IN ('kill_requested', 'kill_active') LIMIT 1"
+                ).fetchone()
+                return row is not None
+        except Exception as e:
+            logger.warning("킬스위치 상태 조회 실패: %s", e)
+            return False
+
     # ---------------- 정리 (오래된 데이터) ----------------
     def cleanup_old_data(self, keep_days: int = 30) -> None:
         """30일 이전 데이터 삭제 (디스크 공간 관리)."""
