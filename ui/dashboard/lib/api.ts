@@ -53,6 +53,16 @@ export interface EnvConfig {
   max_watchlist: number;
 }
 
+export interface RankingStock {
+  rank: number;
+  symbol: string;
+  name: string;
+  price: number;
+  change_rate: number;
+  volume: number;
+  trading_value: number;
+}
+
 export interface StockInfo {
   code: string;
   name: string;
@@ -107,5 +117,6 @@ export const api = {
   envConfig:     () => _get<EnvConfig>("/config/env"),
   searchStocks:  (q: string) => _get<{ stocks: StockInfo[] }>(`/stocks/search?q=${encodeURIComponent(q)}`),
   stocksInfo:    (codes: string[]) => _get<{ info: Record<string, { name: string; market: string }> }>(`/stocks/info?codes=${codes.join(",")}`),
+  ranking:       (type: "volume" | "amount" | "surge") => _get<{ stocks: RankingStock[] }>(`/ranking/${type}`),
   wsUrl:         () => `${API.replace(/^http/, "ws")}/ws/status`,
 };

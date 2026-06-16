@@ -29,7 +29,7 @@ import requests
 
 from .models import (
     AccountSnapshot, DailyBar, Environment, FilledOrder,
-    OrderRequest, Position, Quote, Side,
+    OrderRequest, Position, Quote, RankingStock, Side,
 )
 
 _KST = ZoneInfo("Asia/Seoul")
@@ -357,6 +357,70 @@ class KISBroker:
             status = "filled"
 
         return FilledOrder(odno=odno, filled_qty=filled_qty, avg_price=avg_price, status=status)
+
+    # ---------------- 순위 조회 ----------------
+    def get_volume_rank(self, sort: str = "volume", count: int = 30) -> list[RankingStock]:
+        """거래량·거래대금 상위 종목. TR_ID FHPST01710000 (실전/모의 동일).
+
+        sort: "volume" → 평균거래량순 | "amount" → 거래금액순
+        """
+        path = "/uapi/domestic-stock/v1/quotations/volume-rank"
+        blng_cls = "0" if sort == "volume" else "3"
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_COND_SCR_DIV_CODE": "20171",
+            "FID_INPUT_ISCD": "0000",
+            "FID_DIV_CLS_CODE": "0",
+            "FID_BLNG_CLS_CODE": blng_cls,
+            "FID_TRGT_CLS_CODE": "111111111",
+            "FID_TRGT_EXLS_CLS_CODE": "0000000000",
+            "FID_INPUT_PRICE_1": "",
+            "FID_INPUT_PRICE_2": "",
+            "FID_VOL_CNT": "",
+            "FID_INPUT_DATE_1": "",
+        }
+        rows = self._get(path, "FHPST01710000", params).get("output", [])
+        result = []
+        for row in rows[:count]:
+            result.append(RankingStock(
+                rank=int(row.get("data_rank", "0") or "0"),
+                symbol=row.get("mksc_shrn_iscd", ""),
+                name=row.get("hts_kor_isnm", ""),
+                price=int(row.get("stck_prpr", "0") or "0"),
+                change_rate=float(row.get("prdy_ctrt", "0") or "0"),
+                volume=int(row.get("acml_vol", "0") or "0"),
+                trading_value=int(row.get("acml_tr_pbmn", "0") or "0"),
+            ))
+        return result
+
+    def get_surge_rank(self, count: int = 30) -> list[RankingStock]:
+        """급등주(등락률 상위) 조회. TR_ID FHPST01820000 (실전/모의 동일)."""
+        path = "/uapi/domestic-stock/v1/ranking/exp-trans-updown"
+        params = {
+            "fid_rank_sort_cls_code": "0",
+            "fid_cond_mrkt_div_code": "J",
+            "fid_cond_scr_div_code": "20182",
+            "fid_input_iscd": "0000",
+            "fid_div_cls_code": "0",
+            "fid_aply_rang_prc_1": "",
+            "fid_vol_cnt": "",
+            "fid_pbmn": "",
+            "fid_blng_cls_code": "0",
+            "fid_mkop_cls_code": "0",
+        }
+        rows = self._get(path, "FHPST01820000", params).get("output", [])
+        result = []
+        for i, row in enumerate(rows[:count], 1):
+            result.append(RankingStock(
+                rank=i,
+                symbol=row.get("stck_shrn_iscd", ""),
+                name=row.get("hts_kor_isnm", ""),
+                price=int(row.get("stck_prpr", "0") or "0"),
+                change_rate=float(row.get("prdy_ctrt", "0") or "0"),
+                volume=int(row.get("cntg_vol", "0") or "0"),
+                trading_value=int(row.get("antc_tr_pbmn", "0") or "0"),
+            ))
+        return result
 
     def get_order_status(self, order_no: str, symbol: str) -> FilledOrder:
         """주문번호로 체결 상태 조회. get_order_fill의 별칭(동일 엔드포인트).

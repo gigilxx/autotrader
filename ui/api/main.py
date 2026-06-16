@@ -24,13 +24,18 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import re
+import time as _time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
 from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,6 +52,30 @@ _KIS_ENV          = os.getenv("KIS_ENV", "mock").lower()
 _MAX_WATCHLIST    = 4 if _KIS_ENV != "real" else 40
 _sm               = StateManager(_DB_PATH)
 _STOCK_MASTER_PATH = Path(__file__).parent.parent.parent / "data" / "stock_master.json"
+
+# ─── 순위 조회 (KIS 직접 호출, 60초 캐시) ───────────────────
+_ranking_cache: dict[str, tuple[float, list]] = {}
+_RANKING_TTL = 60.0
+
+def _get_ranking_data(rank_type: str) -> list[dict]:
+    now = _time.monotonic()
+    if rank_type in _ranking_cache:
+        ts, data = _ranking_cache[rank_type]
+        if now - ts < _RANKING_TTL:
+            return data
+    from autotrader.kis_broker import KISBroker, credentials_from_env
+    broker = KISBroker(credentials_from_env())
+    if rank_type == "volume":
+        stocks = broker.get_volume_rank(sort="volume")
+    elif rank_type == "amount":
+        stocks = broker.get_volume_rank(sort="amount")
+    elif rank_type == "surge":
+        stocks = broker.get_surge_rank()
+    else:
+        raise ValueError(f"알 수 없는 rank_type: {rank_type}")
+    data = [dataclasses.asdict(s) for s in stocks]
+    _ranking_cache[rank_type] = (now, data)
+    return data
 
 app = FastAPI(title="AutoTrader API", version="1.0")
 
@@ -172,6 +201,17 @@ def get_important_logs() -> dict:
         return {"lines": [l for l in lines if l.startswith(today)]}
     except Exception as e:
         return {"lines": [], "error": str(e)}
+
+
+@app.get("/ranking/{rank_type}")
+def get_ranking(rank_type: str) -> dict:
+    """rank_type: volume | amount | surge"""
+    if rank_type not in ("volume", "amount", "surge"):
+        raise HTTPException(status_code=400, detail="rank_type은 volume / amount / surge 중 하나")
+    try:
+        return {"stocks": _get_ranking_data(rank_type)}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 # ─── 제어 (인증 필요) ─────────────────────────────────────

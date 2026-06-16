@@ -75,6 +75,18 @@ class AccountSnapshot:
         return sum(1 for p in self.positions.values() if p.qty > 0)
 
 
+@dataclass(frozen=True)
+class RankingStock:
+    """순위 조회 결과 한 종목."""
+    rank: int
+    symbol: str
+    name: str
+    price: int
+    change_rate: float   # 전일 대비율(%)
+    volume: int          # 누적 거래량(주)
+    trading_value: int   # 누적 거래대금(원)
+
+
 @dataclass
 class FilledOrder:
     """주문 체결 결과. send_order 후 체결 조회로 확정."""
