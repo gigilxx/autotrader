@@ -84,7 +84,7 @@ def _get_status_dict() -> dict:
             realized_pnl = row["realized_pnl_today"] if row else 0
 
             kill_flag = cx.execute(
-                "SELECT value FROM control_flags WHERE key = 'kill_requested'"
+                "SELECT value FROM control_flags WHERE key IN ('kill_requested', 'kill_active')"
             ).fetchone()
             is_killed = kill_flag is not None
 
@@ -220,7 +220,7 @@ def resume(_auth: None = Depends(_require_auth)) -> dict:
                 "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
                 "VALUES ('resume_requested', '1', datetime('now'))"
             )
-            cx.execute("DELETE FROM control_flags WHERE key = 'kill_requested'")
+            cx.execute("DELETE FROM control_flags WHERE key IN ('kill_requested', 'kill_active')")
             cx.commit()
         return {"ok": True, "message": "킬스위치 해제 요청 기록됨"}
     except Exception as e:

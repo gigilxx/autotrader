@@ -120,7 +120,7 @@ def _build_status_text() -> str:
             pnl    = row["realized_pnl_today"] if row else 0
 
             kill_row = cx.execute(
-                "SELECT value FROM control_flags WHERE key = 'kill_requested'"
+                "SELECT value FROM control_flags WHERE key IN ('kill_requested', 'kill_active')"
             ).fetchone()
             is_killed = kill_row is not None
 
@@ -208,6 +208,7 @@ def _handle_command(chat_id: int, text: str) -> str:
         _PENDING_KILL.discard(chat_id)
         _set_flag("resume_requested")
         _clear_flag("kill_requested")
+        _clear_flag("kill_active")
         return "✅ 킬스위치 해제 요청 완료."
 
     if cmd == "/trades":

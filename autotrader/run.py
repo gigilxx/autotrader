@@ -192,10 +192,12 @@ def main() -> None:
         sm = engine.state
         if sm.get_control_flag("kill_requested") and not engine.kill.halted:
             sm.clear_control_flag("kill_requested")
+            sm.set_control_flag("kill_active", "1")
             logger.warning("킬스위치 트립 — UI/Telegram 요청")
             engine.kill.trip("UI/Telegram 킬스위치 요청")
         if sm.get_control_flag("resume_requested") and engine.kill.halted:
             sm.clear_control_flag("resume_requested")
+            sm.clear_control_flag("kill_active")
             engine.kill.reset()
             logger.warning("킬스위치 해제 — UI/Telegram 요청")
             engine.alert.send("킬스위치 해제 (UI/Telegram 요청)")
@@ -207,6 +209,11 @@ def main() -> None:
     scheduler.add_job(reconcile_job,    "interval", minutes=10,                 id="reconcile")
     scheduler.add_job(daily_report_job, "cron", day_of_week="mon-fri", hour=15, minute=30, id="daily_report")
     scheduler.add_job(control_check_job, "interval", seconds=5,                 id="control_check")
+
+    # 재시작 시 킬스위치 상태 복원
+    if engine.state.get_control_flag("kill_active"):
+        logger.warning("킬스위치 복원 — 재시작 전 활성화 상태였음")
+        engine.kill.trip("재시작 후 킬스위치 복원")
 
     # 08:55~15:30 사이에 재시작된 경우 prepare_day를 즉시 실행
     now_t = datetime.now(KST).time()
