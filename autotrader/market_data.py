@@ -24,6 +24,7 @@ class MarketData(Protocol):
     def get_prev_day_bar(self, symbol: str) -> DailyBar: ...
     def get_quote(self, symbol: str) -> Quote: ...
     def get_current_price(self, symbol: str) -> int: ...
+    def get_prev_bar_and_today_open(self, symbol: str) -> tuple[DailyBar, int]: ...
 
 
 class KISMarketData:
@@ -35,7 +36,6 @@ class KISMarketData:
     def get_prev_day_bar(self, symbol: str, today: str | None = None) -> DailyBar:
         """오늘 이전의 가장 최근 일봉(=전일).
 
-        🟡 TODO(VERIFY): get_daily_bars 정렬 순서 확인.
         여기서는 '오늘 날짜가 아닌 첫 봉'을 전일로 본다.
         """
         today = today or date.today().strftime("%Y%m%d")
@@ -46,6 +46,37 @@ class KISMarketData:
         if bars:
             return bars[0]
         raise ValueError(f"{symbol}: 일봉 데이터 없음")
+
+    def get_prev_bar_and_today_open(self, symbol: str) -> tuple[DailyBar, int]:
+        """전일봉 + 오늘 시가를 최소 API 호출로 반환.
+
+        일봉 응답에 오늘 날짜가 포함되어 있으면 1콜로 완료.
+        오늘 봉이 없거나 시가가 0이면 get_quote 추가 호출(안전 fallback).
+        """
+        today = date.today().strftime("%Y%m%d")
+        bars = self.broker.get_daily_bars(symbol)
+
+        today_open: int = 0
+        prev_bar: DailyBar | None = None
+
+        for b in bars:
+            if b.date == today:
+                today_open = b.open
+            elif prev_bar is None:
+                prev_bar = b
+
+        if prev_bar is None:
+            if bars:
+                prev_bar = next((b for b in bars if b.date != today), bars[0])
+            else:
+                raise ValueError(f"{symbol}: 일봉 데이터 없음")
+
+        if today_open <= 0:
+            # 오늘 봉이 없거나 시가 미확정 → 현재가 조회로 시가 확보
+            q = self.broker.get_quote(symbol)
+            today_open = q.open if q.open > 0 else q.price
+
+        return prev_bar, today_open
 
     def get_quote(self, symbol: str) -> Quote:
         return self.broker.get_quote(symbol)
@@ -72,6 +103,9 @@ class FakeMarketData:
 
     def get_prev_day_bar(self, symbol: str) -> DailyBar:
         return self._prev
+
+    def get_prev_bar_and_today_open(self, symbol: str) -> tuple[DailyBar, int]:
+        return self._prev, self._open
 
     def get_quote(self, symbol: str) -> Quote:
         px = self._ticks[max(self._i, 0)]

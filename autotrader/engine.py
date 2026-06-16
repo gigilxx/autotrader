@@ -152,14 +152,13 @@ class TradingEngine:
         self.state.cleanup_old_data()
 
     def compute_targets(self) -> None:
-        """09:05 실행 — 장 시작 후 실제 시가로 목표가 계산."""
+        """09:05 실행 — 장 시작 후 실제 시가로 목표가 계산 (종목당 API 1콜)."""
         for sym in self.watchlist:
             try:
-                prev = self.data.get_prev_day_bar(sym)
-                q = self.data.get_quote(sym)
-                self._target_bases[sym] = (prev.high, prev.low, q.open)
+                prev, today_open = self.data.get_prev_bar_and_today_open(sym)
+                self._target_bases[sym] = (prev.high, prev.low, today_open)
                 self.targets[sym] = compute_target_price(
-                    prev.high, prev.low, q.open, self.cfg.strategy.k
+                    prev.high, prev.low, today_open, self.cfg.strategy.k
                 )
                 logger.info("목표가 %s = %.0f", sym, self.targets[sym])
                 self.health.record_api_success()
@@ -459,10 +458,9 @@ class TradingEngine:
     def _compute_target_for_new_symbol(self, sym: str) -> None:
         """장중 추가된 종목의 목표가 계산. 이미 돌파 상태면 진입 스킵 플래그 설정."""
         try:
-            prev = self.data.get_prev_day_bar(sym)
-            q = self.data.get_quote(sym)
-            self._target_bases[sym] = (prev.high, prev.low, q.open)
-            target = compute_target_price(prev.high, prev.low, q.open, self.cfg.strategy.k)
+            prev, today_open = self.data.get_prev_bar_and_today_open(sym)
+            self._target_bases[sym] = (prev.high, prev.low, today_open)
+            target = compute_target_price(prev.high, prev.low, today_open, self.cfg.strategy.k)
             self.targets[sym] = target
             try:
                 px_now = self.data.get_current_price(sym)
