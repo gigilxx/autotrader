@@ -6,19 +6,26 @@
     uvicorn ui.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 엔드포인트:
-    GET  /status          봇 상태
-    GET  /positions       현재 보유 포지션
-    GET  /pnl/today       오늘 손익·거래횟수·남은 한도
-    GET  /trades          오늘 거래 내역
-    GET  /logs?n=50       최근 로그 N줄
-    POST /kill            킬스위치 작동  (Bearer 인증)
-    POST /resume          킬스위치 해제  (Bearer 인증)
-    WS   /ws/status       상태 실시간 스트림 (10초 간격)
+    GET  /status                봇 상태
+    GET  /positions             현재 보유 포지션
+    GET  /pnl/today             오늘 손익·거래횟수·남은 한도
+    GET  /trades                오늘 거래 내역
+    GET  /logs?n=50             최근 로그 N줄
+    GET  /watchlist             관심종목 목록
+    POST /watchlist             관심종목 변경  (Bearer 인증)
+    GET  /market-filter         시장 필터 상태 (KODEX200 vs MA)
+    GET  /config/k              k값 조회
+    POST /config/k              k값 변경  (Bearer 인증)
+    POST /positions/{sym}/enter 강제 진입  (Bearer 인증)
+    POST /kill                  킬스위치 작동  (Bearer 인증)
+    POST /resume                킬스위치 해제  (Bearer 인증)
+    WS   /ws/status             상태 실시간 스트림 (10초 간격)
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import date
@@ -28,6 +35,7 @@ from typing import Generator
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 _DB_PATH          = Path(os.getenv("STATE_DB", "state.db"))
 _LOG_PATH         = Path(os.getenv("LOG_FILE", "logs/autotrader.log"))
@@ -225,6 +233,110 @@ def resume(_auth: None = Depends(_require_auth)) -> dict:
         return {"ok": True, "message": "킬스위치 해제 요청 기록됨"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Pydantic 모델 ─────────────────────────────────────────
+class WatchlistBody(BaseModel):
+    symbols: list[str]
+
+class KValueBody(BaseModel):
+    k: float
+
+
+# ─── 관심종목 ─────────────────────────────────────────────
+@app.get("/watchlist")
+def get_watchlist() -> dict:
+    with _db() as cx:
+        row = cx.execute(
+            "SELECT value FROM control_flags WHERE key = 'watchlist_override'"
+        ).fetchone()
+    if row:
+        symbols = [s.strip() for s in row["value"].split(",") if s.strip()]
+    else:
+        wl_env = os.getenv("WATCHLIST", "005930")
+        symbols = [s.strip() for s in wl_env.split(",") if s.strip()]
+    return {"symbols": symbols}
+
+
+@app.post("/watchlist")
+def set_watchlist(body: WatchlistBody, _auth: None = Depends(_require_auth)) -> dict:
+    symbols = [s.strip() for s in body.symbols if re.match(r"^\d{6}$", s.strip())]
+    with _db() as cx:
+        if symbols:
+            cx.execute(
+                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
+                "VALUES ('watchlist_override', ?, datetime('now'))",
+                (",".join(symbols),),
+            )
+        else:
+            cx.execute("DELETE FROM control_flags WHERE key = 'watchlist_override'")
+        cx.commit()
+    return {"ok": True, "symbols": symbols}
+
+
+# ─── 시장 필터 ────────────────────────────────────────────
+@app.get("/market-filter")
+def get_market_filter() -> dict:
+    with _db() as cx:
+        summary_row = cx.execute(
+            "SELECT value, updated_at FROM control_flags WHERE key = 'market_filter_summary'"
+        ).fetchone()
+        ok_row = cx.execute(
+            "SELECT value FROM control_flags WHERE key = 'market_filter_ok'"
+        ).fetchone()
+    if not summary_row:
+        return {"available": False, "summary": None, "ok": None, "updated_at": None}
+    return {
+        "available": True,
+        "summary": summary_row["value"],
+        "ok": ok_row["value"] == "1" if ok_row else None,
+        "updated_at": summary_row["updated_at"],
+    }
+
+
+# ─── k값 ──────────────────────────────────────────────────
+@app.get("/config/k")
+def get_k_value() -> dict:
+    with _db() as cx:
+        pending_row = cx.execute(
+            "SELECT value FROM control_flags WHERE key = 'k_value'"
+        ).fetchone()
+        current_row = cx.execute(
+            "SELECT value FROM control_flags WHERE key = 'current_k'"
+        ).fetchone()
+    return {
+        "current_k": float(current_row["value"]) if current_row else None,
+        "pending_k": float(pending_row["value"]) if pending_row else None,
+    }
+
+
+@app.post("/config/k")
+def set_k_value(body: KValueBody, _auth: None = Depends(_require_auth)) -> dict:
+    if not (0.1 <= body.k <= 1.0):
+        raise HTTPException(status_code=400, detail="k값은 0.1~1.0 사이여야 합니다")
+    with _db() as cx:
+        cx.execute(
+            "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
+            "VALUES ('k_value', ?, datetime('now'))",
+            (str(body.k),),
+        )
+        cx.commit()
+    return {"ok": True, "k": body.k}
+
+
+# ─── 강제 진입 ────────────────────────────────────────────
+@app.post("/positions/{symbol}/enter")
+def force_entry(symbol: str, _auth: None = Depends(_require_auth)) -> dict:
+    if not re.match(r"^\d{6}$", symbol):
+        raise HTTPException(status_code=400, detail="유효하지 않은 종목코드 (6자리 숫자)")
+    with _db() as cx:
+        cx.execute(
+            "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
+            "VALUES (?, '1', datetime('now'))",
+            (f"force_entry_{symbol}",),
+        )
+        cx.commit()
+    return {"ok": True, "message": f"{symbol} 강제 진입 요청 기록됨 (5초 내 처리)"}
 
 
 # ─── WebSocket 실시간 스트림 ───────────────────────────────

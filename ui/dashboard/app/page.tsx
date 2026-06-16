@@ -5,6 +5,8 @@ import { api, type BotStatus } from "@/lib/api";
 import { KillSwitchButton } from "@/components/KillSwitchButton";
 import { PositionCard } from "@/components/PositionCard";
 import { StatusBadge } from "@/components/StatusBadge";
+import { MarketFilterCard } from "@/components/MarketFilterCard";
+import { KValuePanel } from "@/components/KValuePanel";
 
 export default function DashboardPage() {
   const [status, setStatus] = useState<BotStatus | null>(null);
@@ -103,6 +105,12 @@ export default function DashboardPage() {
             />
             <StatCard label="거래 횟수" value={`${status.trades_today}건`} />
             <StatCard label="보유 포지션" value={`${status.position_count}개`} />
+          </div>
+
+          {/* 시장 필터 + k값 */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <MarketFilterCard />
+            <KValuePanel />
           </div>
 
           {/* 포지션 카드 */}

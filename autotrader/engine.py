@@ -128,6 +128,7 @@ class TradingEngine:
                 self._market_ok = result.ok
                 self._market_filter = result
                 self.state.set_control_flag("market_filter_summary", result.summary())
+                self.state.set_control_flag("market_filter_ok", "1" if result.ok else "0")
                 self.health.record_api_success()
                 if not result.ok:
                     self.alert.send(f"⚠️ 시장 필터 차단 — 오늘 신규 진입 없음\n{result.summary()}")
@@ -332,6 +333,41 @@ class TradingEngine:
             px = self.local[symbol].entry_price
         self._exit(symbol, px, "manual_close")
 
+    def _force_entry(self, sym: str) -> None:
+        """UI 수동 진입 — 브레이크아웃 조건 무시하고 현재가로 즉시 매수."""
+        try:
+            px = self.data.get_current_price(sym)
+        except Exception as e:
+            logger.error("강제 진입 현재가 조회 실패 %s: %s", sym, e)
+            return
+
+        stop = stop_price_of(px, self.cfg.risk.stop_loss_pct)
+        try:
+            available_cash = self.router.broker.get_account().cash
+        except Exception:
+            available_cash = self.cfg.risk.capital
+
+        sizing = calc_position_size(px, stop, available_cash, self.cfg.risk)
+        if sizing.qty <= 0:
+            logger.warning("강제 진입 사이징 0 — %s (%s)", sym, sizing.reason)
+            return
+
+        oid = IdempotencyGuard.make_order_id(sym, "buy", _bar_ts(), "force_entry")
+        order = OrderRequest(sym, Side.BUY, sizing.qty, px, oid, "force_entry")
+        d = self.router.place(order)
+        logger.info("강제 진입 시도 %s qty=%d @ %d → %s", sym, sizing.qty, px, d.approved)
+
+        if not d.approved:
+            logger.warning("강제 진입 거부 %s: %s", sym, d.reason)
+            return
+
+        today_d = self._today or date.today()
+        self.local[sym] = _Local(entry_price=px, qty=sizing.qty)
+        self.state.save_position(today_d, sym, px, sizing.qty)
+        self.state.add_sent_order(oid, today_d)
+        self.state.save_daily_state(today_d, self.gate.trades_today, self.gate.realized_pnl_today)
+        self.alert.send(f"강제 진입 {sym} {sizing.qty}주 @ {px:,}원 (UI 수동)")
+
     def apply_runtime_flags(self) -> None:
         """control_flags에서 런타임 설정 변경을 5초마다 반영."""
         sm = self.state
@@ -373,10 +409,20 @@ class TradingEngine:
                 if 0.1 <= new_k <= 1.0 and self.cfg.strategy.k != new_k:
                     logger.info("k값 변경: %.2f → %.2f", self.cfg.strategy.k, new_k)
                     self.cfg.strategy.k = new_k
+                    sm.set_control_flag("current_k", str(new_k))
                     self.alert.send(f"k값 변경됨: {new_k}")
             except ValueError:
                 pass
             sm.clear_control_flag("k_value")
+
+        # 강제 진입 — 브레이크아웃 조건 무시하고 현재가 즉시 매수
+        for sym in list(self.watchlist):
+            if sm.get_control_flag(f"force_entry_{sym}"):
+                sm.clear_control_flag(f"force_entry_{sym}")
+                if sym not in self.local:
+                    self._force_entry(sym)
+                else:
+                    logger.warning("강제 진입 요청 %s — 이미 보유 중, 무시", sym)
 
     # ---------------- 마감 강제청산 ----------------
     def force_close(self, now: time) -> None:

@@ -33,6 +33,18 @@ export interface PnlToday {
   realized_pnl: number;
 }
 
+export interface MarketFilter {
+  available: boolean;
+  summary: string | null;
+  ok: boolean | null;
+  updated_at: string | null;
+}
+
+export interface KConfig {
+  current_k: number | null;
+  pending_k: number | null;
+}
+
 async function _get<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: 0 } });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
@@ -47,15 +59,33 @@ async function _post(path: string): Promise<{ ok: boolean; message: string }> {
   return res.json();
 }
 
+async function _postBody<T>(path: string, body: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (SECRET) headers["Authorization"] = `Bearer ${SECRET}`;
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${path}`);
+  return res.json() as Promise<T>;
+}
+
 export const api = {
-  status: ()   => _get<BotStatus>("/status"),
-  positions: () => _get<{ positions: Position[] }>("/positions"),
-  pnlToday: () => _get<PnlToday>("/pnl/today"),
-  trades: ()   => _get<{ trades: Trade[] }>("/trades"),
-  logs: (n = 50) => _get<{ lines: string[] }>(`/logs?n=${n}`),
+  status:        () => _get<BotStatus>("/status"),
+  positions:     () => _get<{ positions: Position[] }>("/positions"),
+  pnlToday:      () => _get<PnlToday>("/pnl/today"),
+  trades:        () => _get<{ trades: Trade[] }>("/trades"),
+  logs:          (n = 50) => _get<{ lines: string[] }>(`/logs?n=${n}`),
   importantLogs: (n = 200) => _get<{ lines: string[]; note?: string }>(`/important-logs?n=${n}`),
-  kill:   ()   => _post("/kill"),
-  resume: ()   => _post("/resume"),
+  kill:          () => _post("/kill"),
+  resume:        () => _post("/resume"),
   closePosition: (symbol: string) => _post(`/positions/${symbol}/close`),
-  wsUrl: ()    => `${API.replace(/^http/, "ws")}/ws/status`,
+  forceEntry:    (symbol: string) => _post(`/positions/${symbol}/enter`),
+  watchlist:     () => _get<{ symbols: string[] }>("/watchlist"),
+  setWatchlist:  (symbols: string[]) => _postBody<{ ok: boolean; symbols: string[] }>("/watchlist", { symbols }),
+  marketFilter:  () => _get<MarketFilter>("/market-filter"),
+  getK:          () => _get<KConfig>("/config/k"),
+  setK:          (k: number) => _postBody<{ ok: boolean; k: number }>("/config/k", { k }),
+  wsUrl:         () => `${API.replace(/^http/, "ws")}/ws/status`,
 };
