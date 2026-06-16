@@ -453,8 +453,7 @@ class TradingEngine:
                             try:
                                 px_now = self.data.get_current_price(sym)
                                 if px_now >= target:
-                                    self.detector._above[sym] = True
-                                    self.detector._fired[sym] = True
+                                    self.detector.mark_already_above(sym)
                                     logger.info(
                                         "신규 종목 %s 현재가(%d) 이미 목표가(%.0f) 초과 — 장중 추격 진입 방지",
                                         sym, px_now, target,

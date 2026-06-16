@@ -35,6 +35,11 @@ class BreakoutDetector:
             return True
         return False
 
+    def mark_already_above(self, symbol: str) -> None:
+        """장중 종목 추가 시 이미 목표가 위에 있어 오늘 진입을 건너뜀."""
+        self._above[symbol] = True
+        self._fired[symbol] = True
+
     def reset_day(self) -> None:
         """새 거래일 시작 시 호출."""
         self._above.clear()
