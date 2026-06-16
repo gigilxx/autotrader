@@ -208,6 +208,12 @@ def main() -> None:
     scheduler.add_job(daily_report_job, "cron", day_of_week="mon-fri", hour=15, minute=30, id="daily_report")
     scheduler.add_job(control_check_job, "interval", seconds=5,                 id="control_check")
 
+    # 08:55~15:30 사이에 재시작된 경우 prepare_day를 즉시 실행
+    now_t = datetime.now(KST).time()
+    if _is_trading_day() and time(8, 55) <= now_t <= MARKET_CLOSE and not engine.targets:
+        logger.info("장중 재시작 감지 — prepare_day 즉시 실행")
+        prepare_day_job()
+
     logger.info("스케줄러 시작 (KIS_ENV=%s)", os.getenv("KIS_ENV", "mock"))
     try:
         scheduler.start()

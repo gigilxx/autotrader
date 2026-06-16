@@ -4,13 +4,6 @@ REM Task Scheduler 또는 수동 실행용
 
 cd /d "%~dp0"
 
-REM .env 파일 로드 (있으면)
-if exist ".env" (
-    for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
-        if not "%%A"=="" if not "%%A:~0,1%"=="#" set "%%A=%%B"
-    )
-)
-
 REM PYTHONUTF8 강제 (한국어 로그 깨짐 방지)
 set PYTHONUTF8=1
 
