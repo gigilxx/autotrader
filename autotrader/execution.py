@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Optional, Protocol
 
 from .kill_switch import KillSwitch
 from .models import AccountSnapshot, OrderRequest, Side
@@ -43,7 +43,7 @@ class OrderRouter:
         self.kill = kill
         self.idem = idem
 
-    def place(self, order: OrderRequest) -> PlaceResult:
+    def place(self, order: OrderRequest, prefetched_account: Optional[AccountSnapshot] = None) -> PlaceResult:
         """주문 전송 시도. 통과 못 하면 사유와 함께 거부."""
         if self.kill.halted and order.side == Side.BUY:
             return PlaceResult(False, f"정지 상태 — 신규 진입 차단: {self.kill.reason}")
@@ -51,7 +51,7 @@ class OrderRouter:
         if not self.idem.is_new(order.client_order_id):
             return PlaceResult(False, "중복 주문 — 이미 전송됨(멱등성 차단)")
 
-        account = self.broker.get_account()
+        account = prefetched_account or self.broker.get_account()
 
         decision = self.gate.evaluate(order, account)
         if not decision.approved:

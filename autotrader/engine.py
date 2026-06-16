@@ -13,6 +13,9 @@ import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
 from typing import Optional
 
 from .alerts import AlertSender
@@ -222,8 +225,10 @@ class TradingEngine:
 
         stop = stop_price_of(px, self.cfg.risk.stop_loss_pct)
         try:
-            available_cash = self.router.broker.get_account().cash
+            account = self.router.broker.get_account()
+            available_cash = account.cash
         except Exception:
+            account = None
             available_cash = self.cfg.risk.capital
 
         sizing = calc_position_size(px, stop, available_cash, self.cfg.risk)
@@ -233,7 +238,7 @@ class TradingEngine:
 
         oid = IdempotencyGuard.make_order_id(sym, "buy", _bar_ts(), "entry")
         order = OrderRequest(sym, Side.BUY, sizing.qty, px, oid, "breakout_entry")
-        d = self.router.place(order)
+        d = self.router.place(order, prefetched_account=account)
         logger.info("진입 시도 %s qty=%d → %s (%s)", sym, sizing.qty, d.approved, d.reason)
 
         if not d.approved:
@@ -298,7 +303,16 @@ class TradingEngine:
             d = self.router.place(order)
             logger.info("청산(%s) %s qty=%d 시도%d → %s", reason, sym, pos.qty, attempt, d.approved)
             if d.approved:
-                pnl = net_pnl(pos.entry_price, px, pos.qty, self.cfg.cost)
+                actual_px = px
+                if d.odno:
+                    try:
+                        fill = self.router.broker.wait_for_fill(d.odno, sym, pos.qty)
+                        if fill.avg_price > 0:
+                            actual_px = int(fill.avg_price)
+                    except Exception as e:
+                        logger.warning("청산 체결가 조회 실패 %s — 현재가로 대체: %s", sym, e)
+
+                pnl = net_pnl(pos.entry_price, actual_px, pos.qty, self.cfg.cost)
                 self.gate.register_realized_pnl(pnl)
 
                 today_d = self._today or date.today()
@@ -309,19 +323,19 @@ class TradingEngine:
                 )
                 self.state.record_trade(
                     today_d, exit_time, sym,
-                    pos.entry_price, px, pos.qty, pnl, reason,
+                    pos.entry_price, actual_px, pos.qty, pnl, reason,
                 )
                 self.reporter.record(TradeRecord(
                     symbol=sym,
                     entry_price=pos.entry_price,
-                    exit_price=px,
+                    exit_price=actual_px,
                     qty=pos.qty,
                     pnl=pnl,
                     reason=reason,
                     exit_time=exit_time,
                 ))
                 del self.local[sym]
-                self.alert.send(f"청산 {sym} {pos.qty}주 @ {px:,}원 ({reason}) 손익 {pnl:,}원")
+                self.alert.send(f"청산 {sym} {pos.qty}주 @ {actual_px:,}원 ({reason}) 손익 {pnl:,}원")
                 return
 
             if attempt < _MAX_EXIT_RETRY:
@@ -347,6 +361,11 @@ class TradingEngine:
 
     def _force_entry(self, sym: str) -> None:
         """UI 수동 진입 — 브레이크아웃 조건 무시하고 현재가로 즉시 매수."""
+        now_t = datetime.now(_KST).time()
+        if not entry_allowed_by_time(now_t, self.cfg.strategy):
+            logger.warning("강제 진입 %s — 진입 마감 시간(%s) 이후, 무시", sym, self.cfg.strategy.entry_cutoff_time)
+            return
+
         try:
             px = self.data.get_current_price(sym)
         except Exception as e:
@@ -355,8 +374,10 @@ class TradingEngine:
 
         stop = stop_price_of(px, self.cfg.risk.stop_loss_pct)
         try:
-            available_cash = self.router.broker.get_account().cash
+            account = self.router.broker.get_account()
+            available_cash = account.cash
         except Exception:
+            account = None
             available_cash = self.cfg.risk.capital
 
         sizing = calc_position_size(px, stop, available_cash, self.cfg.risk)
@@ -366,19 +387,38 @@ class TradingEngine:
 
         oid = IdempotencyGuard.make_order_id(sym, "buy", _bar_ts(), "force_entry")
         order = OrderRequest(sym, Side.BUY, sizing.qty, px, oid, "force_entry")
-        d = self.router.place(order)
+        d = self.router.place(order, prefetched_account=account)
         logger.info("강제 진입 시도 %s qty=%d @ %d → %s", sym, sizing.qty, px, d.approved)
 
         if not d.approved:
             logger.warning("강제 진입 거부 %s: %s", sym, d.reason)
             return
 
+        # B-1: 체결 확인 후 포지션 기록
+        filled_qty = sizing.qty
+        fill_price = float(px)
+        if d.odno:
+            try:
+                fill = self.router.broker.wait_for_fill(d.odno, sym, sizing.qty)
+                if fill.filled_qty > 0:
+                    filled_qty = fill.filled_qty
+                    fill_price = fill.avg_price if fill.avg_price > 0 else float(px)
+                else:
+                    logger.warning("강제 진입 미체결 %s — 포지션 기록 취소", sym)
+                    return
+            except Exception as e:
+                logger.warning("강제 진입 체결 조회 실패 %s — 요청 수량으로 가정: %s", sym, e)
+
+        if filled_qty <= 0:
+            logger.warning("강제 진입 체결 수량 0 — %s", sym)
+            return
+
         today_d = self._today or date.today()
-        self.local[sym] = _Local(entry_price=px, qty=sizing.qty)
-        self.state.save_position(today_d, sym, px, sizing.qty)
+        self.local[sym] = _Local(entry_price=int(fill_price), qty=filled_qty)
+        self.state.save_position(today_d, sym, int(fill_price), filled_qty)
         self.state.add_sent_order(oid, today_d)
         self.state.save_daily_state(today_d, self.gate.trades_today, self.gate.realized_pnl_today)
-        self.alert.send(f"강제 진입 {sym} {sizing.qty}주 @ {px:,}원 (UI 수동)")
+        self.alert.send(f"강제 진입 {sym} {filled_qty}주 @ {int(fill_price):,}원 (UI 수동)")
 
     def apply_runtime_flags(self) -> None:
         """control_flags에서 런타임 설정 변경을 5초마다 반영."""
