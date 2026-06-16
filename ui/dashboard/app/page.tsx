@@ -90,7 +90,7 @@ export default function DashboardPage() {
           {/* 상태 + 킬스위치 */}
           <div className="rounded-xl bg-gray-900 border border-gray-800 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="space-y-2">
-              <StatusBadge isKilled={status.is_killed} />
+              <StatusBadge isKilled={status.is_killed} botAlive={status.bot_alive} />
               <p className="text-sm text-gray-400">{status.date}</p>
             </div>
             <KillSwitchButton isKilled={status.is_killed} onDone={refresh} />

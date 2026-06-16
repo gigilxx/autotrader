@@ -264,6 +264,21 @@ class StateManager:
             logger.warning("control_flag 조회 실패 key=%s: %s", key, e)
             return None
 
+    def set_heartbeat(self) -> None:
+        self.set_control_flag("heartbeat", datetime.now(_KST).isoformat())
+
+    def is_bot_alive(self, threshold_sec: int = 30) -> bool:
+        val = self.get_control_flag("heartbeat")
+        if not val:
+            return False
+        try:
+            ts = datetime.fromisoformat(val)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=_KST)
+            return (datetime.now(_KST) - ts).total_seconds() < threshold_sec
+        except Exception:
+            return False
+
     def is_kill_active(self) -> bool:
         """kill_requested 또는 kill_active 플래그 존재 여부."""
         try:

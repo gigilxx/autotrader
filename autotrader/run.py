@@ -209,6 +209,7 @@ def main() -> None:
     def control_check_job():
         """UI/텔레그램에서 설정한 kill/resume 플래그를 5초마다 확인."""
         sm = engine.state
+        sm.set_heartbeat()
         if sm.get_control_flag("kill_requested") and not engine.kill.halted:
             sm.clear_control_flag("kill_requested")
             sm.set_control_flag("kill_active", "1")

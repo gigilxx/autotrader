@@ -81,9 +81,11 @@ def _get_status_dict() -> dict:
         ds = _sm.load_daily_state(today_d)
         positions = _sm.load_positions(today_d)
         is_killed = _sm.is_kill_active()
+        bot_alive = _sm.is_bot_alive()
         return {
             "date": today,
             "is_killed": is_killed,
+            "bot_alive": bot_alive,
             "trades_today": ds.trades_today,
             "realized_pnl": ds.realized_pnl_today,
             "position_count": len(positions),

@@ -5,6 +5,7 @@ const PROXY = "/api/proxy";
 export interface BotStatus {
   date: string;
   is_killed: boolean;
+  bot_alive: boolean;
   trades_today: number;
   realized_pnl: number;
   position_count: number;
