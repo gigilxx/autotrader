@@ -21,6 +21,9 @@ import os
 from datetime import date, timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 OUTPUT = Path(__file__).parent.parent / "data" / "stock_master.json"
 
 
