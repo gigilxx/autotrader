@@ -63,12 +63,17 @@ async function _get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function _throwFromResponse(res: Response, path: string): Promise<never> {
+  const body = await res.json().catch(() => ({}));
+  throw new Error(body.detail ?? body.message ?? `${res.status} ${path}`);
+}
+
 async function _post(path: string): Promise<{ ok: boolean; message: string }> {
   const res = await fetch(`${PROXY}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error(`${res.status} ${path}`);
+  if (!res.ok) await _throwFromResponse(res, path);
   return res.json();
 }
 
@@ -78,7 +83,7 @@ async function _postBody<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${res.status} ${path}`);
+  if (!res.ok) await _throwFromResponse(res, path);
   return res.json() as Promise<T>;
 }
 
