@@ -1,5 +1,6 @@
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const SECRET = process.env.NEXT_PUBLIC_API_SECRET ?? "";
+// POST 요청은 /api/proxy 를 경유 (서버 사이드에서 API_SECRET 처리)
+const PROXY = "/api/proxy";
 
 export interface BotStatus {
   date: string;
@@ -63,19 +64,18 @@ async function _get<T>(path: string): Promise<T> {
 }
 
 async function _post(path: string): Promise<{ ok: boolean; message: string }> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (SECRET) headers["Authorization"] = `Bearer ${SECRET}`;
-  const res = await fetch(`${API}${path}`, { method: "POST", headers });
+  const res = await fetch(`${PROXY}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
   return res.json();
 }
 
 async function _postBody<T>(path: string, body: unknown): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (SECRET) headers["Authorization"] = `Bearer ${SECRET}`;
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetch(`${PROXY}${path}`, {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
