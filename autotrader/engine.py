@@ -94,6 +94,7 @@ class TradingEngine:
 
     # ---------------- 거래일 시작 ----------------
     def prepare_day(self, today: Optional[date] = None) -> None:
+        """08:55 실행 — DB 복원·브로커 동기화·시장 필터. 목표가는 compute_targets()에서 09:05에 계산."""
         self._today = today or date.today()
         today_d = self._today
 
@@ -123,7 +124,7 @@ class TradingEngine:
         # 4.5) 리포트 수집기 초기화
         self.reporter.reset(today_d)
 
-        # 4.6) 시장 필터
+        # 4.6) 시장 필터 (전날 종가 기반 — 장 시작 전 조회 가능)
         if self.cfg.strategy.use_market_filter:
             try:
                 result = check_market(
@@ -145,10 +146,13 @@ class TradingEngine:
         else:
             self._market_ok = True
 
-        # 5) 목표가 계산
         self.detector.reset_day()
         self.targets.clear()
         self._target_bases.clear()
+        self.state.cleanup_old_data()
+
+    def compute_targets(self) -> None:
+        """09:05 실행 — 장 시작 후 실제 시가로 목표가 계산."""
         for sym in self.watchlist:
             try:
                 prev = self.data.get_prev_day_bar(sym)
@@ -162,8 +166,6 @@ class TradingEngine:
             except Exception as e:  # noqa: BLE001
                 logger.error("목표가 계산 실패 %s: %s", sym, e)
                 self.health.record_api_error()
-
-        self.state.cleanup_old_data()
 
     def _sync_local_with_broker(self, broker_acct: AccountSnapshot) -> None:
         """브로커 실잔고로 engine.local 보정. 이월 포지션은 즉시 청산."""

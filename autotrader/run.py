@@ -1,10 +1,11 @@
 """실행 진입점 — APScheduler 기반 장중 스케줄러.
 
 스케줄:
-  08:55  prepare_day()  — 목표가 계산, 포지션 동기화
-  09:00~14:30  tick_job()  — 2초마다 현재가 폴링 (REST 방식)
-  15:15  force_close()  — 미청산분 강제청산
-  15:30  daily_report() — 일일 리포트 후 스케줄러 종료
+  08:55  prepare_day()      — DB 복원·포지션 동기화·시장 필터
+  09:05  compute_targets()  — 장 시작 후 실제 시가로 목표가 계산
+  09:00~14:30  tick_job()   — 2초마다 현재가 폴링 (REST 방식)
+  15:15  force_close()      — 미청산분 강제청산
+  15:30  daily_report()     — 일일 리포트 후 스케줄러 종료
 
 한국 공휴일·토요일·일요일은 자동 스킵 (holidays 라이브러리 사용).
 모의→실전 전환: 환경변수 KIS_ENV=real 하나로만.
@@ -158,6 +159,16 @@ def main() -> None:
         engine.prepare_day()
 
     @_guard
+    def compute_targets_job():
+        if not _is_trading_day():
+            return
+        if not engine.targets and not engine._today:
+            logger.warning("compute_targets: prepare_day 미실행 — 스킵")
+            return
+        logger.info("=== 목표가 계산 (장 시작 후 실제 시가) ===")
+        engine.compute_targets()
+
+    @_guard
     def tick_job():
         if engine.kill.halted:
             return
@@ -211,8 +222,9 @@ def main() -> None:
             engine.alert.send("킬스위치 해제 (UI/Telegram 요청)")
         engine.apply_runtime_flags()
 
-    scheduler.add_job(prepare_day_job,  "cron", day_of_week="mon-fri", hour=8,  minute=55, id="prepare_day")
-    scheduler.add_job(tick_job,         "interval", seconds=POLL_INTERVAL_SEC,  id="tick")
+    scheduler.add_job(prepare_day_job,     "cron", day_of_week="mon-fri", hour=8,  minute=55, id="prepare_day")
+    scheduler.add_job(compute_targets_job, "cron", day_of_week="mon-fri", hour=9,  minute=5,  id="compute_targets")
+    scheduler.add_job(tick_job,            "interval", seconds=POLL_INTERVAL_SEC,  id="tick")
     scheduler.add_job(force_close_job,  "cron", day_of_week="mon-fri", hour=15, minute=15, id="force_close")
     scheduler.add_job(reconcile_job,    "interval", minutes=10,                 id="reconcile")
     scheduler.add_job(daily_report_job, "cron", day_of_week="mon-fri", hour=15, minute=30, id="daily_report")
@@ -223,11 +235,13 @@ def main() -> None:
         logger.warning("킬스위치 복원 — 재시작 전 활성화 상태였음")
         engine.kill.trip("재시작 후 킬스위치 복원")
 
-    # 08:55~15:30 사이에 재시작된 경우 prepare_day를 즉시 실행
+    # 08:55~15:30 사이에 재시작된 경우 prepare_day + compute_targets를 즉시 실행
     now_t = datetime.now(KST).time()
     if _is_trading_day() and time(8, 55) <= now_t <= MARKET_CLOSE and not engine.targets:
         logger.info("장중 재시작 감지 — prepare_day 즉시 실행")
         prepare_day_job()
+        if time(9, 5) <= now_t:
+            compute_targets_job()
 
     logger.info("스케줄러 시작 (KIS_ENV=%s)", os.getenv("KIS_ENV", "mock"))
     try:
