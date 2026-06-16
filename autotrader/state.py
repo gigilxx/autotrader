@@ -210,13 +210,14 @@ class StateManager:
         except Exception as e:
             logger.error("거래 기록 실패 %s: %s", symbol, e)
 
-    def get_trades(self, today: date) -> list[dict]:
+    def get_trades(self, from_date: date, to_date: date | None = None) -> list[dict]:
+        to = to_date or from_date
         try:
             with self._conn() as cx:
                 rows = cx.execute(
-                    "SELECT exit_time, symbol, entry_price, exit_price, qty, pnl, reason "
-                    "FROM trades WHERE date = ? ORDER BY id",
-                    (today.strftime("%Y%m%d"),),
+                    "SELECT date, exit_time, symbol, entry_price, exit_price, qty, pnl, reason "
+                    "FROM trades WHERE date BETWEEN ? AND ? ORDER BY date, id",
+                    (from_date.strftime("%Y%m%d"), to.strftime("%Y%m%d")),
                 ).fetchall()
                 return [dict(row) for row in rows]
         except Exception as e:

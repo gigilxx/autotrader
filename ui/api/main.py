@@ -27,7 +27,7 @@ import asyncio
 import json
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
 from pathlib import Path
@@ -156,10 +156,11 @@ def get_pnl_today() -> dict:
 
 
 @app.get("/trades")
-def get_trades() -> dict:
-    today = _today_str()
-    today_d = date.fromisoformat(f"{today[:4]}-{today[4:6]}-{today[6:]}")
-    return {"trades": _sm.get_trades(today_d)}
+def get_trades(days: int = 1) -> dict:
+    days = max(1, min(days, 365))
+    to_d = datetime.now(_KST).date()
+    from_d = to_d - timedelta(days=days - 1)
+    return {"trades": _sm.get_trades(from_d, to_d)}
 
 
 @app.get("/logs")

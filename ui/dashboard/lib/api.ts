@@ -20,6 +20,7 @@ export interface Position {
 }
 
 export interface Trade {
+  date: string;
   exit_time: string;
   symbol: string;
   entry_price: number;
@@ -92,7 +93,7 @@ export const api = {
   status:        () => _get<BotStatus>("/status"),
   positions:     () => _get<{ positions: Position[] }>("/positions"),
   pnlToday:      () => _get<PnlToday>("/pnl/today"),
-  trades:        () => _get<{ trades: Trade[] }>("/trades"),
+  trades:        (days = 1) => _get<{ trades: Trade[] }>(`/trades?days=${days}`),
   logs:          (n = 50) => _get<{ lines: string[] }>(`/logs?n=${n}`),
   importantLogs: (n = 200) => _get<{ lines: string[]; note?: string }>(`/important-logs?n=${n}`),
   kill:          () => _post("/kill"),
