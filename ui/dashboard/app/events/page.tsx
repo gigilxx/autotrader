@@ -3,47 +3,48 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
-const LEVEL_COLOR: Record<string, string> = {
-  ERROR:    "text-red-400",
-  CRITICAL: "text-red-400",
-  WARNING:  "text-yellow-400",
-};
+type CategoryId = "진입" | "청산" | "강제청산" | "에러" | "경고" | "시장필터" | "리포트" | "기타";
 
-const KEYWORD_COLOR: Array<[string, string]> = [
-  ["진입",          "text-green-400"],
-  ["청산",          "text-blue-400"],
-  ["trailing_stop", "text-orange-400"],
-  ["force_close",   "text-orange-400"],
-  ["manual_close",  "text-orange-400"],
-  ["킬스위치",       "text-red-400"],
-  ["시장 필터",      "text-purple-400"],
-  ["리포트",        "text-cyan-400"],
+const CATEGORIES: {
+  id: CategoryId;
+  label: string;
+  lineColor: string;
+  activeClass: string;
+}[] = [
+  { id: "진입",     label: "진입",          lineColor: "text-green-400",  activeClass: "bg-green-900/40 border-green-600 text-green-300" },
+  { id: "청산",     label: "청산",          lineColor: "text-blue-400",   activeClass: "bg-blue-900/40 border-blue-600 text-blue-300" },
+  { id: "강제청산", label: "손절/강제청산",  lineColor: "text-orange-400", activeClass: "bg-orange-900/40 border-orange-600 text-orange-300" },
+  { id: "에러",     label: "킬스위치/에러",  lineColor: "text-red-400",    activeClass: "bg-red-900/40 border-red-600 text-red-300" },
+  { id: "경고",     label: "경고",          lineColor: "text-yellow-400", activeClass: "bg-yellow-900/40 border-yellow-600 text-yellow-300" },
+  { id: "시장필터", label: "시장필터",       lineColor: "text-purple-400", activeClass: "bg-purple-900/40 border-purple-600 text-purple-300" },
+  { id: "리포트",   label: "리포트",         lineColor: "text-cyan-400",   activeClass: "bg-cyan-900/40 border-cyan-600 text-cyan-300" },
+  { id: "기타",     label: "기타",           lineColor: "text-gray-400",   activeClass: "bg-gray-800 border-gray-600 text-gray-300" },
 ];
 
-function lineColor(line: string): string {
-  for (const [lvl, cls] of Object.entries(LEVEL_COLOR)) {
-    if (line.includes(lvl)) return cls;
-  }
-  for (const [kw, cls] of KEYWORD_COLOR) {
-    if (line.includes(kw)) return cls;
-  }
-  return "text-gray-300";
+const CAT_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+
+function categorize(line: string): CategoryId {
+  if (line.includes("ERROR") || line.includes("CRITICAL") || line.includes("킬스위치")) return "에러";
+  if (line.includes("WARNING")) return "경고";
+  if (line.includes("trailing_stop") || line.includes("force_close") || line.includes("manual_close")) return "강제청산";
+  if (line.includes("청산")) return "청산";
+  if (line.includes("진입")) return "진입";
+  if (line.includes("시장 필터")) return "시장필터";
+  if (line.includes("리포트")) return "리포트";
+  return "기타";
 }
 
 export default function EventsPage() {
   const [lines, setLines] = useState<string[]>([]);
-  const [note, setNote]   = useState("");
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
+  const [selected, setSelected] = useState<Set<CategoryId>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(() => {
-    api.importantLogs(200)
-      .then((r) => {
-        setLines(r.lines);
-        setNote(r.note ?? "");
-        setError("");
-      })
+    api.importantLogs()
+      .then((r) => { setLines(r.lines); setNote(r.note ?? ""); setError(""); })
       .catch((e) => setError(String(e)));
   }, []);
 
@@ -57,14 +58,24 @@ export default function EventsPage() {
     if (autoScroll) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [lines, autoScroll]);
 
+  function toggleCategory(id: CategoryId) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const filtered = lines.filter(
+    (line) => selected.size === 0 || selected.has(categorize(line))
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">주요 이벤트</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            WARNING 이상 · 진입/청산/킬스위치/리포트 등 — 10초 자동 갱신
-          </p>
+          <p className="text-xs text-gray-500 mt-0.5">당일 · 10초 자동 갱신</p>
         </div>
         <div className="flex gap-3 text-sm">
           <label className="flex items-center gap-1 text-gray-400 cursor-pointer">
@@ -82,15 +93,32 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {/* 색상 범례 */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-        <span className="text-green-400">● 진입</span>
-        <span className="text-blue-400">● 청산</span>
-        <span className="text-orange-400">● 손절/강제청산</span>
-        <span className="text-red-400">● 킬스위치/에러</span>
-        <span className="text-yellow-400">● 경고</span>
-        <span className="text-purple-400">● 시장필터</span>
-        <span className="text-cyan-400">● 리포트</span>
+      {/* 카테고리 필터 */}
+      <div className="flex flex-wrap gap-2 items-center">
+        {CATEGORIES.map((cat) => {
+          const active = selected.has(cat.id);
+          return (
+            <button
+              key={cat.id}
+              onClick={() => toggleCategory(cat.id)}
+              className={`px-3 py-1 rounded border text-xs font-medium transition-colors ${
+                active
+                  ? cat.activeClass
+                  : "bg-gray-900 border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-400"
+              }`}
+            >
+              {cat.label}
+            </button>
+          );
+        })}
+        {selected.size > 0 && (
+          <button
+            onClick={() => setSelected(new Set())}
+            className="px-3 py-1 rounded border border-gray-700 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            전체 보기
+          </button>
+        )}
       </div>
 
       {error && (
@@ -100,16 +128,19 @@ export default function EventsPage() {
       )}
 
       <div className="rounded-lg bg-gray-900 border border-gray-800 p-4 h-[70vh] overflow-y-auto font-mono text-xs">
-        {note && lines.length === 0 ? (
+        {note && filtered.length === 0 ? (
           <p className="text-gray-500 text-center py-12">{note}</p>
-        ) : lines.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <p className="text-gray-500 text-center py-12">이벤트 없음</p>
         ) : (
-          lines.map((line, i) => (
-            <div key={i} className={`leading-5 ${lineColor(line)}`}>
-              {line}
-            </div>
-          ))
+          filtered.map((line, i) => {
+            const cat = categorize(line);
+            return (
+              <div key={i} className={`leading-5 ${CAT_MAP[cat].lineColor}`}>
+                {line}
+              </div>
+            );
+          })
         )}
         <div ref={bottomRef} />
       </div>

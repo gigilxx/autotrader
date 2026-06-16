@@ -41,7 +41,6 @@ from autotrader.state import StateManager
 
 _KST              = ZoneInfo("Asia/Seoul")
 _DB_PATH          = Path(os.getenv("STATE_DB", "state.db"))
-_LOG_PATH         = Path(os.getenv("LOG_FILE", "logs/autotrader.log"))
 _IMPORTANT_LOG    = Path(os.getenv("IMPORTANT_LOG", "logs/important.log"))
 _SECRET_KEY       = os.getenv("UI_SECRET_KEY", "")
 _KIS_ENV          = os.getenv("KIS_ENV", "mock").lower()
@@ -163,24 +162,14 @@ def get_trades(days: int = 1) -> dict:
     return {"trades": _sm.get_trades(from_d, to_d)}
 
 
-@app.get("/logs")
-def get_logs(n: int = 50) -> dict:
-    if not _LOG_PATH.exists():
-        return {"lines": []}
-    try:
-        lines = _LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
-        return {"lines": lines[-n:]}
-    except Exception as e:
-        return {"lines": [], "error": str(e)}
-
-
 @app.get("/important-logs")
-def get_important_logs(n: int = 200) -> dict:
+def get_important_logs() -> dict:
     if not _IMPORTANT_LOG.exists():
         return {"lines": [], "note": "important.log 없음 — 봇 첫 실행 후 생성됩니다"}
     try:
+        today = datetime.now(_KST).strftime("%Y-%m-%d")
         lines = _IMPORTANT_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
-        return {"lines": lines[-n:]}
+        return {"lines": [l for l in lines if l.startswith(today)]}
     except Exception as e:
         return {"lines": [], "error": str(e)}
 

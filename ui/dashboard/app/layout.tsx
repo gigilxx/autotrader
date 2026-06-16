@@ -16,7 +16,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Link href="/watchlist" className="hover:text-blue-400 transition-colors">관심종목</Link>
           <Link href="/trades"    className="hover:text-blue-400 transition-colors">거래 내역</Link>
           <Link href="/events"    className="hover:text-blue-400 transition-colors">주요 이벤트</Link>
-          <Link href="/logs"      className="hover:text-blue-400 transition-colors">전체 로그</Link>
           <Link href="/backtest"  className="hover:text-blue-400 transition-colors">백테스트</Link>
         </nav>
         <main className="p-4 md:p-6 max-w-4xl mx-auto">
