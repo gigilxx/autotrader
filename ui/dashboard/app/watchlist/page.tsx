@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Position } from "@/lib/api";
+import { api, type Position, type StockInfo } from "@/lib/api";
+import StockAutocomplete from "@/components/StockAutocomplete";
 
 export default function WatchlistPage() {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [input, setInput] = useState("");
+  const [nameMap, setNameMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: "info" | "error" } | null>(null);
   const [maxWatchlist, setMaxWatchlist] = useState(4);
@@ -24,6 +25,17 @@ export default function WatchlistPage() {
       setPositions(pos.positions);
       setMaxWatchlist(env.max_watchlist);
       setEnvLabel(env.env === "real" ? "실전" : "모의투자");
+
+      if (wl.symbols.length > 0) {
+        try {
+          const infoRes = await api.stocksInfo(wl.symbols);
+          setNameMap(Object.fromEntries(
+            Object.entries(infoRes.info).map(([code, v]) => [code, v.name])
+          ));
+        } catch {
+          // 종목명 조회 실패 시 코드만 표시
+        }
+      }
     } catch (e) {
       setMsg({ text: String(e), type: "error" });
     }
@@ -36,21 +48,15 @@ export default function WatchlistPage() {
     setTimeout(() => setMsg(null), 4000);
   }
 
-  async function add() {
-    const sym = input.trim();
-    if (!/^\d{6}$/.test(sym)) {
-      showMsg("6자리 숫자 종목코드를 입력하세요 (예: 000660)", "error");
-      return;
-    }
-    if (symbols.includes(sym)) {
+  async function add(stock: StockInfo) {
+    if (symbols.includes(stock.code)) {
       showMsg("이미 추가된 종목입니다", "error");
       return;
     }
     setLoading(true);
     try {
-      await api.setWatchlist([...symbols, sym]);
-      setInput("");
-      showMsg(`${sym} 추가됨 — 봇이 5초 내 목표가를 계산합니다`);
+      await api.setWatchlist([...symbols, stock.code]);
+      showMsg(`${stock.code} ${stock.name} 추가됨 — 봇이 5초 내 목표가를 계산합니다`);
       await load();
     } catch (e) {
       showMsg(String(e), "error");
@@ -140,24 +146,11 @@ export default function WatchlistPage() {
       <div className="rounded-xl bg-gray-900 border border-gray-800 p-5 space-y-3">
         <h2 className="text-sm font-semibold text-gray-400">종목 추가</h2>
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !atLimit && add()}
-            placeholder="종목코드 6자리 (예: 000660)"
-            maxLength={6}
-            disabled={atLimit}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
+          <StockAutocomplete
+            onSelect={add}
+            disabled={atLimit || loading}
+            placeholder="종목코드 또는 종목명 (예: 삼성전자, 005930)"
           />
-          <button
-            onClick={add}
-            disabled={loading || atLimit}
-            title={atLimit ? `최대 ${maxWatchlist}종목 도달` : ""}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors"
-          >
-            추가
-          </button>
         </div>
         {atLimit ? (
           <p className="text-xs text-red-400">
@@ -165,7 +158,7 @@ export default function WatchlistPage() {
           </p>
         ) : (
           <p className="text-xs text-gray-600">
-            추가 후 봇이 5초 내 해당 종목의 목표가를 계산합니다.
+            종목명 또는 코드 입력 후 목록에서 선택하면 자동 추가됩니다.
           </p>
         )}
       </div>
@@ -182,6 +175,7 @@ export default function WatchlistPage() {
           <div className="space-y-2">
             {symbols.map((sym) => {
               const pos = posMap.get(sym);
+              const stockName = nameMap[sym];
               const isPending = pendingRemove === sym;
 
               if (isPending) {
@@ -193,6 +187,9 @@ export default function WatchlistPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <span className="font-mono font-semibold text-base">{sym}</span>
+                        {stockName && (
+                          <span className="ml-2 text-sm text-gray-300">{stockName}</span>
+                        )}
                         <p className="text-xs text-red-300 mt-1">
                           ⚠️ 보유 포지션이 있습니다. 제거 시 즉시 청산됩니다.
                         </p>
@@ -224,6 +221,9 @@ export default function WatchlistPage() {
                 >
                   <div>
                     <span className="font-mono font-semibold text-base">{sym}</span>
+                    {stockName && (
+                      <span className="ml-2 text-sm text-gray-400">{stockName}</span>
+                    )}
                     {pos && (
                       <span className="ml-3 text-xs text-yellow-400">
                         보유 {pos.qty}주 @ {pos.entry_price.toLocaleString()}원

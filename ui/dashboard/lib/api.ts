@@ -50,6 +50,12 @@ export interface EnvConfig {
   max_watchlist: number;
 }
 
+export interface StockInfo {
+  code: string;
+  name: string;
+  market: string;
+}
+
 async function _get<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: 0 } });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
@@ -93,5 +99,7 @@ export const api = {
   getK:          () => _get<KConfig>("/config/k"),
   setK:          (k: number) => _postBody<{ ok: boolean; k: number }>("/config/k", { k }),
   envConfig:     () => _get<EnvConfig>("/config/env"),
+  searchStocks:  (q: string) => _get<{ stocks: StockInfo[] }>(`/stocks/search?q=${encodeURIComponent(q)}`),
+  stocksInfo:    (codes: string[]) => _get<{ info: Record<string, { name: string; market: string }> }>(`/stocks/info?codes=${codes.join(",")}`),
   wsUrl:         () => `${API.replace(/^http/, "ws")}/ws/status`,
 };

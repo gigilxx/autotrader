@@ -24,11 +24,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from typing import Generator
 
@@ -46,6 +48,7 @@ _SECRET_KEY       = os.getenv("UI_SECRET_KEY", "")
 _KIS_ENV          = os.getenv("KIS_ENV", "mock").lower()
 _MAX_WATCHLIST    = 4 if _KIS_ENV != "real" else 40
 _sm               = StateManager(_DB_PATH)
+_STOCK_MASTER_PATH = Path(__file__).parent.parent.parent / "data" / "stock_master.json"
 
 app = FastAPI(title="AutoTrader API", version="1.0")
 
@@ -116,6 +119,40 @@ def _get_status_dict() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@lru_cache(maxsize=1)
+def _load_stock_master() -> list[dict]:
+    try:
+        return json.loads(_STOCK_MASTER_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+# ─── 종목 검색 ────────────────────────────────────────────
+@app.get("/stocks/search")
+def search_stocks(q: str = "") -> dict:
+    q = q.strip()
+    if not q:
+        return {"stocks": []}
+    stocks = _load_stock_master()
+    q_lower = q.lower()
+    results = [
+        s for s in stocks
+        if q_lower in s["code"] or q_lower in s["name"].lower()
+    ]
+    return {"stocks": results[:20]}
+
+
+@app.get("/stocks/info")
+def get_stocks_info(codes: str = "") -> dict:
+    """쉼표 구분 종목코드 목록의 이름·시장 정보 반환."""
+    if not codes:
+        return {"info": {}}
+    code_list = [c.strip() for c in codes.split(",") if re.match(r"^\d{6}$", c.strip())]
+    stocks = _load_stock_master()
+    info = {s["code"]: {"name": s["name"], "market": s["market"]} for s in stocks if s["code"] in code_list}
+    return {"info": info}
 
 
 @app.get("/config/env")
