@@ -29,7 +29,7 @@ export default function RankingPage() {
   const [stocks, setStocks] = useState<RankingStock[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState("");
-  const [lastUpdated, setLastUpdated] = useState("");
+  const [fetchedAt, setFetchedAt] = useState("");
 
   const load = useCallback(async (type: RankType) => {
     setLoading(true);
@@ -37,7 +37,7 @@ export default function RankingPage() {
     try {
       const r = await api.ranking(type);
       setStocks(r.stocks);
-      setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
+      setFetchedAt(r.fetched_at ?? "");
     } catch (e) {
       setError(String(e));
       setStocks([]);
@@ -58,8 +58,8 @@ export default function RankingPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">시장 순위</h1>
         <div className="flex items-center gap-3">
-          {lastUpdated && (
-            <span className="text-xs text-gray-500">갱신: {lastUpdated}</span>
+          {fetchedAt && (
+            <span className="text-xs text-gray-500">기준: {fetchedAt}</span>
           )}
           <button
             onClick={() => load(tab)}

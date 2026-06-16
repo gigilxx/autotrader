@@ -57,12 +57,13 @@ _STOCK_MASTER_PATH = Path(__file__).parent.parent.parent / "data" / "stock_maste
 _ranking_cache: dict[str, tuple[float, list]] = {}
 _RANKING_TTL = 60.0
 
-def _get_ranking_data(rank_type: str) -> list[dict]:
+def _get_ranking_data(rank_type: str) -> tuple[list[dict], str]:
+    """(stocks, fetched_at_kst) 반환. 60초 캐시."""
     now = _time.monotonic()
     if rank_type in _ranking_cache:
-        ts, data = _ranking_cache[rank_type]
+        ts, data, fetched_at = _ranking_cache[rank_type]
         if now - ts < _RANKING_TTL:
-            return data
+            return data, fetched_at
     from autotrader.kis_broker import KISBroker, credentials_from_env
     broker = KISBroker(credentials_from_env())
     if rank_type == "volume":
@@ -74,8 +75,9 @@ def _get_ranking_data(rank_type: str) -> list[dict]:
     else:
         raise ValueError(f"알 수 없는 rank_type: {rank_type}")
     data = [dataclasses.asdict(s) for s in stocks]
-    _ranking_cache[rank_type] = (now, data)
-    return data
+    fetched_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
+    _ranking_cache[rank_type] = (now, data, fetched_at)
+    return data, fetched_at
 
 app = FastAPI(title="AutoTrader API", version="1.0")
 
@@ -209,7 +211,8 @@ def get_ranking(rank_type: str) -> dict:
     if rank_type not in ("volume", "amount", "surge"):
         raise HTTPException(status_code=400, detail="rank_type은 volume / amount / surge 중 하나")
     try:
-        return {"stocks": _get_ranking_data(rank_type)}
+        data, fetched_at = _get_ranking_data(rank_type)
+        return {"stocks": data, "fetched_at": fetched_at}
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 

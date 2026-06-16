@@ -117,6 +117,6 @@ export const api = {
   envConfig:     () => _get<EnvConfig>("/config/env"),
   searchStocks:  (q: string) => _get<{ stocks: StockInfo[] }>(`/stocks/search?q=${encodeURIComponent(q)}`),
   stocksInfo:    (codes: string[]) => _get<{ info: Record<string, { name: string; market: string }> }>(`/stocks/info?codes=${codes.join(",")}`),
-  ranking:       (type: "volume" | "amount" | "surge") => _get<{ stocks: RankingStock[] }>(`/ranking/${type}`),
+  ranking:       (type: "volume" | "amount" | "surge") => _get<{ stocks: RankingStock[]; fetched_at: string }>(`/ranking/${type}`),
   wsUrl:         () => `${API.replace(/^http/, "ws")}/ws/status`,
 };
