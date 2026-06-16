@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Optional
@@ -177,21 +178,29 @@ class TradingEngine:
                 del self.local[sym]
 
     # ---------------- 장중 1틱 ----------------
+    def _fetch_price(self, sym: str) -> tuple[str, int | None]:
+        try:
+            return sym, self.data.get_current_price(sym)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("시세 실패 %s: %s", sym, e)
+            return sym, None
+
     def on_tick(self, now: time, now_ts: float) -> None:
         if self.kill.halted:
             return
         self.health.check_feed(now_ts)
 
-        for sym in self.watchlist:
-            try:
-                px = self.data.get_current_price(sym)
-                self.health.record_quote(now_ts)
-                self.health.record_api_success()
-            except Exception as e:  # noqa: BLE001
-                logger.warning("시세 실패 %s: %s", sym, e)
+        symbols = list(self.watchlist)
+        # 현재가 병렬 조회 (max_workers=2: rate limit 대비 2개씩 묶음)
+        with ThreadPoolExecutor(max_workers=min(len(symbols), 2)) as ex:
+            results = list(ex.map(self._fetch_price, symbols))
+
+        for sym, px in results:
+            if px is None:
                 self.health.record_api_error()
                 continue
-
+            self.health.record_quote(now_ts)
+            self.health.record_api_success()
             if sym in self.local:
                 self._manage_position(sym, px)
             else:
