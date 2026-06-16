@@ -247,43 +247,58 @@ class TradingEngine:
         if not d.approved:
             return
 
-        # 부분 체결 대응
-        filled_qty = sizing.qty
-        fill_price = float(px)
-        if d.odno:
-            try:
-                fill = self.router.broker.wait_for_fill(d.odno, sym, sizing.qty)
-                if fill.filled_qty > 0:
-                    filled_qty = fill.filled_qty
-                    fill_price = fill.avg_price if fill.avg_price > 0 else float(px)
-                    if fill.status == "partial":
-                        logger.warning("부분 체결 %s: %d/%d주 — 잔량 취소", sym, filled_qty, sizing.qty)
-                        try:
-                            self.router.broker.cancel_order(d.odno, sym, sizing.qty)
-                        except Exception as ce:  # noqa: BLE001
-                            logger.warning("잔량 취소 실패 %s: %s", sym, ce)
-                else:
-                    try:
-                        ok = self.router.broker.cancel_order(d.odno, sym, sizing.qty)
-                        logger.info("미체결 주문 취소 %s ODNO=%s → %s", sym, d.odno, "성공" if ok else "실패")
-                    except Exception as ce:  # noqa: BLE001
-                        logger.warning("미체결 취소 실패 %s ODNO=%s: %s", sym, d.odno, ce)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("체결 조회 실패 %s: %s — 요청 수량으로 가정", sym, e)
-
+        filled_qty, fill_price = self._resolve_buy_fill(d.odno, sym, sizing.qty, px)
         if filled_qty <= 0:
             logger.warning("체결 수량 0 — 진입 취소 %s", sym)
             return
 
-        self.local[sym] = _Local(entry_price=int(fill_price), qty=filled_qty)
+        self._record_entry(sym, oid, int(fill_price), filled_qty, target, stop)
 
+    def _resolve_buy_fill(
+        self, odno: str | None, sym: str, req_qty: int, fallback_px: int
+    ) -> tuple[int, float]:
+        """주문 ODNO의 체결 결과를 조회하고 (filled_qty, avg_price) 반환. 부분 체결 시 잔량 취소."""
+        filled_qty = req_qty
+        fill_price = float(fallback_px)
+        if not odno:
+            return filled_qty, fill_price
+        try:
+            fill = self.router.broker.wait_for_fill(odno, sym, req_qty)
+            if fill.filled_qty > 0:
+                filled_qty = fill.filled_qty
+                fill_price = fill.avg_price if fill.avg_price > 0 else float(fallback_px)
+                if fill.status == "partial":
+                    logger.warning("부분 체결 %s: %d/%d주 — 잔량 취소", sym, filled_qty, req_qty)
+                    try:
+                        self.router.broker.cancel_order(odno, sym, req_qty)
+                    except Exception as ce:  # noqa: BLE001
+                        logger.warning("잔량 취소 실패 %s: %s", sym, ce)
+            else:
+                try:
+                    ok = self.router.broker.cancel_order(odno, sym, req_qty)
+                    logger.info("미체결 주문 취소 %s ODNO=%s → %s", sym, odno, "성공" if ok else "실패")
+                except Exception as ce:  # noqa: BLE001
+                    logger.warning("미체결 취소 실패 %s ODNO=%s: %s", sym, odno, ce)
+                filled_qty = 0
+        except Exception as e:  # noqa: BLE001
+            logger.warning("체결 조회 실패 %s: %s — 요청 수량으로 가정", sym, e)
+        return filled_qty, fill_price
+
+    def _persist_entry(self, sym: str, oid: str, fill_price: int, filled_qty: int) -> None:
+        """체결 완료된 진입 정보를 local/state에 기록 (알림 제외)."""
+        self.local[sym] = _Local(entry_price=fill_price, qty=filled_qty)
         today_d = self._today or date.today()
-        self.state.save_position(today_d, sym, int(fill_price), filled_qty)
+        self.state.save_position(today_d, sym, fill_price, filled_qty)
         self.state.add_sent_order(oid, today_d)
         self.state.save_daily_state(today_d, self.gate.trades_today, self.gate.realized_pnl_today)
 
+    def _record_entry(
+        self, sym: str, oid: str, fill_price: int, filled_qty: int, target: float, stop: int
+    ) -> None:
+        """체결 완료된 진입 정보를 local/state에 기록하고 알림 전송."""
+        self._persist_entry(sym, oid, fill_price, filled_qty)
         self.alert.send(
-            f"진입 {sym} {filled_qty}주 @ {int(fill_price):,}원 "
+            f"진입 {sym} {filled_qty}주 @ {fill_price:,}원 "
             f"(목표가 {target:.0f}, 손절 {stop:,})"
         )
 
@@ -398,103 +413,99 @@ class TradingEngine:
             return
 
         # B-1: 체결 확인 후 포지션 기록
-        filled_qty = sizing.qty
-        fill_price = float(px)
-        if d.odno:
-            try:
-                fill = self.router.broker.wait_for_fill(d.odno, sym, sizing.qty)
-                if fill.filled_qty > 0:
-                    filled_qty = fill.filled_qty
-                    fill_price = fill.avg_price if fill.avg_price > 0 else float(px)
-                else:
-                    logger.warning("강제 진입 미체결 %s — 포지션 기록 취소", sym)
-                    return
-            except Exception as e:
-                logger.warning("강제 진입 체결 조회 실패 %s — 요청 수량으로 가정: %s", sym, e)
-
+        filled_qty, fill_price = self._resolve_buy_fill(d.odno, sym, sizing.qty, px)
         if filled_qty <= 0:
             logger.warning("강제 진입 체결 수량 0 — %s", sym)
             return
 
-        today_d = self._today or date.today()
-        self.local[sym] = _Local(entry_price=int(fill_price), qty=filled_qty)
-        self.state.save_position(today_d, sym, int(fill_price), filled_qty)
-        self.state.add_sent_order(oid, today_d)
-        self.state.save_daily_state(today_d, self.gate.trades_today, self.gate.realized_pnl_today)
+        self._persist_entry(sym, oid, int(fill_price), filled_qty)
         self.alert.send(f"강제 진입 {sym} {filled_qty}주 @ {int(fill_price):,}원 (UI 수동)")
 
     def apply_runtime_flags(self) -> None:
         """control_flags에서 런타임 설정 변경을 5초마다 반영."""
-        sm = self.state
+        self._apply_force_close_flags()
+        self._apply_watchlist_change()
+        self._apply_k_change()
+        self._apply_force_entry_flags()
 
-        # 수동 청산
+    def _apply_force_close_flags(self) -> None:
+        sm = self.state
         for sym in list(self.local.keys()):
             if sm.get_control_flag(f"force_close_{sym}"):
                 sm.clear_control_flag(f"force_close_{sym}")
                 self.close_position_by_symbol(sym)
 
-        # watchlist 변경 — 제거 종목 보유 시 즉시 청산, 추가 종목 목표가 계산 시도
+    def _apply_watchlist_change(self) -> None:
+        sm = self.state
         watchlist_str = sm.get_control_flag("watchlist_override")
-        if watchlist_str is not None:
-            new_wl = [s.strip() for s in watchlist_str.split(",") if s.strip()]
-            if set(new_wl) != set(self.watchlist):
-                for sym in set(self.watchlist) - set(new_wl):
-                    if sym in self.local:
-                        self.close_position_by_symbol(sym)
-                    self.targets.pop(sym, None)
-                for sym in set(new_wl) - set(self.watchlist):
-                    if sym not in self.targets:
-                        try:
-                            prev = self.data.get_prev_day_bar(sym)
-                            q = self.data.get_quote(sym)
-                            self._target_bases[sym] = (prev.high, prev.low, q.open)
-                            target = compute_target_price(
-                                prev.high, prev.low, q.open, self.cfg.strategy.k
-                            )
-                            self.targets[sym] = target
-                            # 이미 목표가 위에 있으면 오늘 돌파는 이미 발생한 것 — 진입 스킵
-                            try:
-                                px_now = self.data.get_current_price(sym)
-                                if px_now >= target:
-                                    self.detector.mark_already_above(sym)
-                                    logger.info(
-                                        "신규 종목 %s 현재가(%d) 이미 목표가(%.0f) 초과 — 장중 추격 진입 방지",
-                                        sym, px_now, target,
-                                    )
-                                else:
-                                    logger.info("신규 종목 목표가 %s = %.0f", sym, target)
-                            except Exception:
-                                logger.info("신규 종목 목표가 %s = %.0f", sym, target)
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("목표가 계산 실패 %s: %s", sym, e)
-                self.watchlist = new_wl
-                logger.info("watchlist 업데이트: %s", self.watchlist)
+        if watchlist_str is None:
+            return
+        new_wl = [s.strip() for s in watchlist_str.split(",") if s.strip()]
+        if set(new_wl) == set(self.watchlist):
+            return
 
-        # k값 변경 — cfg 즉시 반영 + 미진입 종목 목표가 즉시 재계산
-        k_str = sm.get_control_flag("k_value")
-        if k_str is not None:
+        for sym in set(self.watchlist) - set(new_wl):
+            if sym in self.local:
+                self.close_position_by_symbol(sym)
+            self.targets.pop(sym, None)
+
+        for sym in set(new_wl) - set(self.watchlist):
+            if sym not in self.targets:
+                self._compute_target_for_new_symbol(sym)
+
+        self.watchlist = new_wl
+        logger.info("watchlist 업데이트: %s", self.watchlist)
+
+    def _compute_target_for_new_symbol(self, sym: str) -> None:
+        """장중 추가된 종목의 목표가 계산. 이미 돌파 상태면 진입 스킵 플래그 설정."""
+        try:
+            prev = self.data.get_prev_day_bar(sym)
+            q = self.data.get_quote(sym)
+            self._target_bases[sym] = (prev.high, prev.low, q.open)
+            target = compute_target_price(prev.high, prev.low, q.open, self.cfg.strategy.k)
+            self.targets[sym] = target
             try:
-                new_k = float(k_str)
-                if 0.1 <= new_k <= 1.0 and self.cfg.strategy.k != new_k:
-                    logger.info("k값 변경: %.2f → %.2f", self.cfg.strategy.k, new_k)
-                    self.cfg.strategy.k = new_k
-                    sm.set_control_flag("current_k", str(new_k))
-                    # 미진입 종목 목표가 즉시 재계산
-                    for sym, (ph, pl, op) in self._target_bases.items():
-                        if sym not in self.local:
-                            new_target = compute_target_price(ph, pl, op, new_k)
-                            old_target = self.targets.get(sym, 0)
-                            self.targets[sym] = new_target
-                            logger.info(
-                                "목표가 재계산 %s: %.0f → %.0f (k=%.2f)",
-                                sym, old_target, new_target, new_k,
-                            )
-                    self.alert.send(f"k값 변경됨: {new_k} (미진입 종목 목표가 즉시 반영)")
-            except ValueError:
-                pass
-            sm.clear_control_flag("k_value")
+                px_now = self.data.get_current_price(sym)
+                if px_now >= target:
+                    self.detector.mark_already_above(sym)
+                    logger.info(
+                        "신규 종목 %s 현재가(%d) 이미 목표가(%.0f) 초과 — 장중 추격 진입 방지",
+                        sym, px_now, target,
+                    )
+                else:
+                    logger.info("신규 종목 목표가 %s = %.0f", sym, target)
+            except Exception:
+                logger.info("신규 종목 목표가 %s = %.0f", sym, target)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("목표가 계산 실패 %s: %s", sym, e)
 
-        # 강제 진입 — 브레이크아웃 조건 무시하고 현재가 즉시 매수
+    def _apply_k_change(self) -> None:
+        sm = self.state
+        k_str = sm.get_control_flag("k_value")
+        if k_str is None:
+            return
+        try:
+            new_k = float(k_str)
+            if 0.1 <= new_k <= 1.0 and self.cfg.strategy.k != new_k:
+                logger.info("k값 변경: %.2f → %.2f", self.cfg.strategy.k, new_k)
+                self.cfg.strategy.k = new_k
+                sm.set_control_flag("current_k", str(new_k))
+                for sym, (ph, pl, op) in self._target_bases.items():
+                    if sym not in self.local:
+                        new_target = compute_target_price(ph, pl, op, new_k)
+                        old_target = self.targets.get(sym, 0)
+                        self.targets[sym] = new_target
+                        logger.info(
+                            "목표가 재계산 %s: %.0f → %.0f (k=%.2f)",
+                            sym, old_target, new_target, new_k,
+                        )
+                self.alert.send(f"k값 변경됨: {new_k} (미진입 종목 목표가 즉시 반영)")
+        except ValueError:
+            pass
+        sm.clear_control_flag("k_value")
+
+    def _apply_force_entry_flags(self) -> None:
+        sm = self.state
         for sym in list(self.watchlist):
             if sm.get_control_flag(f"force_entry_{sym}"):
                 sm.clear_control_flag(f"force_entry_{sym}")
