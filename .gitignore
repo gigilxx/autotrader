@@ -11,6 +11,8 @@ state.db
 # 로그
 logs/
 *.log
+# Next.js 라우트 폴더 예외
+!ui/dashboard/app/logs/
 
 # Python
 __pycache__/
