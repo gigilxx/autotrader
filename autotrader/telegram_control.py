@@ -43,7 +43,8 @@ _DB_PATH = Path(os.getenv("STATE_DB", "state.db"))
 
 _sm = StateManager(_DB_PATH)
 
-_PENDING_KILL: set[int] = set()  # /kill 확인 대기 중인 chat_id
+_PENDING_KILL: set[int] = set()       # /kill 확인 대기 중인 chat_id
+_PENDING_WATCH_DEL: dict[int, str] = {}  # /watch_del 2단계 확인 대기
 
 
 # ─── DB 헬퍼 (복잡한 읽기 쿼리용) ──────────────────────────
@@ -144,16 +145,17 @@ def _build_trades_text() -> str:
 
 _HELP_TEXT = """\
 명령어 목록:
-  /status        현재 봇 상태
-  /kill          킬스위치 작동 (확인 필요)
-  /resume        킬스위치 해제
-  /trades        오늘 거래 내역
-  /market        시장 필터 상태 (KODEX200 vs MA)
-  /watchlist     관심종목 목록
-  /watch_add     종목 추가  예) /watch_add 000660
-  /watch_del     종목 제거  예) /watch_del 000660
-  /k             돌파계수 조회·변경  예) /k 0.5
-  /help          이 도움말"""
+  /status             현재 봇 상태
+  /kill               킬스위치 작동 (확인 필요)
+  /resume             킬스위치 해제
+  /trades             오늘 거래 내역
+  /market             시장 필터 상태 (KODEX200 vs MA)
+  /watchlist          관심종목 목록
+  /watch_add          종목 추가  예) /watch_add 000660
+  /watch_del          종목 제거  예) /watch_del 000660
+  /watch_del_confirm  포지션 보유 종목 제거 최종 확인
+  /k                  돌파계수 조회·변경  예) /k 0.5
+  /help               이 도움말"""
 
 
 # ─── 명령어 핸들러 ──────────────────────────────────────────
@@ -207,6 +209,9 @@ def _cmd_watch_add(chat_id: int, parts: list[str]) -> str:
         return "사용법: /watch_add 종목코드  예) /watch_add 000660"
     sym = parts[1].strip().upper()
     wl = _get_watchlist()
+    max_wl = 4 if os.getenv("KIS_ENV", "mock").lower() != "real" else 40
+    if len(wl) >= max_wl:
+        return f"⛔ 최대 {max_wl}종목 한도 초과 (현재 {len(wl)}개)"
     if sym not in wl:
         wl.append(sym)
         _set_watchlist(wl)
@@ -218,10 +223,39 @@ def _cmd_watch_del(chat_id: int, parts: list[str]) -> str:
         return "사용법: /watch_del 종목코드  예) /watch_del 000660"
     sym = parts[1].strip().upper()
     wl = _get_watchlist()
+    if sym not in wl:
+        return f"{sym} 은 관심종목에 없습니다."
+    today = _today()
+    try:
+        with _db() as cx:
+            pos_row = cx.execute(
+                "SELECT symbol FROM positions WHERE date=? AND symbol=?", (today, sym)
+            ).fetchone()
+        if pos_row:
+            _PENDING_WATCH_DEL[chat_id] = sym
+            return (
+                f"⚠️ {sym} 보유 포지션이 있습니다. 제거 시 즉시 청산됩니다.\n"
+                f"/watch_del_confirm {sym}  으로 최종 확인하세요."
+            )
+    except Exception as e:
+        logger.warning("포지션 확인 실패 %s: %s", sym, e)
+    wl.remove(sym)
+    _set_watchlist(wl)
+    return f"✅ {sym} 제거됨\n관심종목: {', '.join(wl)}"
+
+
+def _cmd_watch_del_confirm(chat_id: int, parts: list[str]) -> str:
+    if len(parts) < 2:
+        return "사용법: /watch_del_confirm 종목코드"
+    sym = parts[1].strip().upper()
+    pending = _PENDING_WATCH_DEL.pop(chat_id, None)
+    if pending != sym:
+        return f"먼저 /watch_del {sym} 을 입력하세요."
+    wl = _get_watchlist()
     if sym in wl:
         wl.remove(sym)
         _set_watchlist(wl)
-    return f"✅ {sym} 제거 (보유 중이면 즉시 청산)\n관심종목: {', '.join(wl)}"
+    return f"✅ {sym} 제거됨 (즉시 청산 진행)\n관심종목: {', '.join(wl)}"
 
 
 def _cmd_k(chat_id: int, parts: list[str]) -> str:
@@ -239,17 +273,18 @@ def _cmd_k(chat_id: int, parts: list[str]) -> str:
 
 
 _HANDLERS: dict[str, Callable[[int, list[str]], str]] = {
-    "/status":       _cmd_status,
-    "/kill":         _cmd_kill,
-    "/confirm_kill": _cmd_confirm_kill,
-    "/resume":       _cmd_resume,
-    "/trades":       _cmd_trades,
-    "/help":         _cmd_help,
-    "/market":       _cmd_market,
-    "/watchlist":    _cmd_watchlist,
-    "/watch_add":    _cmd_watch_add,
-    "/watch_del":    _cmd_watch_del,
-    "/k":            _cmd_k,
+    "/status":            _cmd_status,
+    "/kill":              _cmd_kill,
+    "/confirm_kill":      _cmd_confirm_kill,
+    "/resume":            _cmd_resume,
+    "/trades":            _cmd_trades,
+    "/help":              _cmd_help,
+    "/market":            _cmd_market,
+    "/watchlist":         _cmd_watchlist,
+    "/watch_add":         _cmd_watch_add,
+    "/watch_del":         _cmd_watch_del,
+    "/watch_del_confirm": _cmd_watch_del_confirm,
+    "/k":                 _cmd_k,
 }
 
 
@@ -290,7 +325,7 @@ def main() -> None:
 
     app = Application.builder().token(_TOKEN).build()
     for cmd in ("status", "kill", "confirm_kill", "resume", "trades", "help",
-                "market", "watchlist", "watch_add", "watch_del", "k"):
+                "market", "watchlist", "watch_add", "watch_del", "watch_del_confirm", "k"):
         app.add_handler(CommandHandler(cmd, _reply))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _reply))
 
@@ -305,8 +340,9 @@ def main() -> None:
             BotCommand("market",       "시장 필터 상태 (KODEX200 vs MA)"),
             BotCommand("watchlist",    "관심종목 목록"),
             BotCommand("watch_add",    "종목 추가  예) /watch_add 000660"),
-            BotCommand("watch_del",    "종목 제거  예) /watch_del 000660"),
-            BotCommand("k",            "돌파계수 조회·변경  예) /k 0.5"),
+            BotCommand("watch_del",         "종목 제거  예) /watch_del 000660"),
+            BotCommand("watch_del_confirm", "포지션 보유 종목 제거 최종 확인"),
+            BotCommand("k",                 "돌파계수 조회·변경  예) /k 0.5"),
             BotCommand("help",         "명령어 목록"),
         ])
 

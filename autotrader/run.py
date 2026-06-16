@@ -154,6 +154,7 @@ def main() -> None:
             logger.info("휴장일 — prepare_day 스킵")
             return
         logger.info("=== 거래일 시작 ===")
+        engine.apply_runtime_flags()  # 밤새 UI에서 변경된 watchlist/k값 반영
         engine.prepare_day()
 
     @_guard

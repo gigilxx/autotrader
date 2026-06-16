@@ -45,6 +45,11 @@ export interface KConfig {
   pending_k: number | null;
 }
 
+export interface EnvConfig {
+  env: string;
+  max_watchlist: number;
+}
+
 async function _get<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: 0 } });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
@@ -87,5 +92,6 @@ export const api = {
   marketFilter:  () => _get<MarketFilter>("/market-filter"),
   getK:          () => _get<KConfig>("/config/k"),
   setK:          (k: number) => _postBody<{ ok: boolean; k: number }>("/config/k", { k }),
+  envConfig:     () => _get<EnvConfig>("/config/env"),
   wsUrl:         () => `${API.replace(/^http/, "ws")}/ws/status`,
 };

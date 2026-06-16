@@ -43,6 +43,8 @@ _DB_PATH          = Path(os.getenv("STATE_DB", "state.db"))
 _LOG_PATH         = Path(os.getenv("LOG_FILE", "logs/autotrader.log"))
 _IMPORTANT_LOG    = Path(os.getenv("IMPORTANT_LOG", "logs/important.log"))
 _SECRET_KEY       = os.getenv("UI_SECRET_KEY", "")
+_KIS_ENV          = os.getenv("KIS_ENV", "mock").lower()
+_MAX_WATCHLIST    = 4 if _KIS_ENV != "real" else 40
 _sm               = StateManager(_DB_PATH)
 
 app = FastAPI(title="AutoTrader API", version="1.0")
@@ -114,6 +116,11 @@ def _get_status_dict() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/config/env")
+def get_env_config() -> dict:
+    return {"env": _KIS_ENV, "max_watchlist": _MAX_WATCHLIST}
 
 
 @app.get("/status")
@@ -231,6 +238,12 @@ def set_watchlist(body: WatchlistBody, _auth: None = Depends(_require_auth)) -> 
     symbols = [s.strip() for s in body.symbols if re.match(r"^\d{6}$", s.strip())]
     if not symbols:
         raise HTTPException(status_code=400, detail="관심종목은 최소 1개 이상이어야 합니다")
+    if len(symbols) > _MAX_WATCHLIST:
+        env_label = "모의투자" if _KIS_ENV != "real" else "실전"
+        raise HTTPException(
+            status_code=400,
+            detail=f"{env_label} 최대 {_MAX_WATCHLIST}종목 (요청: {len(symbols)}개)",
+        )
     _sm.set_control_flag("watchlist_override", ",".join(symbols))
     return {"ok": True, "symbols": symbols}
 
