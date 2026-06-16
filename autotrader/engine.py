@@ -392,10 +392,24 @@ class TradingEngine:
                         try:
                             prev = self.data.get_prev_day_bar(sym)
                             q = self.data.get_quote(sym)
-                            self.targets[sym] = compute_target_price(
+                            target = compute_target_price(
                                 prev.high, prev.low, q.open, self.cfg.strategy.k
                             )
-                            logger.info("신규 종목 목표가 %s = %.0f", sym, self.targets[sym])
+                            self.targets[sym] = target
+                            # 이미 목표가 위에 있으면 오늘 돌파는 이미 발생한 것 — 진입 스킵
+                            try:
+                                px_now = self.data.get_current_price(sym)
+                                if px_now >= target:
+                                    self.detector._above[sym] = True
+                                    self.detector._fired[sym] = True
+                                    logger.info(
+                                        "신규 종목 %s 현재가(%d) 이미 목표가(%.0f) 초과 — 장중 추격 진입 방지",
+                                        sym, px_now, target,
+                                    )
+                                else:
+                                    logger.info("신규 종목 목표가 %s = %.0f", sym, target)
+                            except Exception:
+                                logger.info("신규 종목 목표가 %s = %.0f", sym, target)
                         except Exception as e:  # noqa: BLE001
                             logger.warning("목표가 계산 실패 %s: %s", sym, e)
                 self.watchlist = new_wl
