@@ -124,6 +124,24 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 
 ---
 
+## Git 커밋·푸시 규칙
+
+코드 수정 작업이 완료될 때마다 별도 지시 없이 아래 절차를 자동 수행한다.
+
+1. `git add` — 수정된 파일만 스테이징
+2. `git commit` — 변경 내용을 요약한 메시지로 커밋 (작성자: `haenaexx <haenaexx@naver.com>`)
+3. `git push` — `origin master` 로 즉시 푸시
+
+커밋 메시지 형식:
+```
+<type>: <한 줄 요약>
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+```
+type 예시: `fix`, `feat`, `refactor`, `docs`, `chore`
+
+---
+
 ## 코딩 규칙
 
 - `state.py` 예외: `except Exception: pass` 금지 → `logger.error` (쓰기) / `logger.warning` (읽기)
@@ -131,6 +149,7 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 - `engine.py` 수정 시: `apply_runtime_flags()` 흐름과 `_target_bases` dict 영향 반드시 확인
 - WAL: 세 프로세스 모두 `PRAGMA journal_mode=WAL` 필수 (`state.py` + `api/main.py` + `telegram_control.py` 모두 적용됨)
 - 새 `control_flags` 플래그 추가 시: `apply_runtime_flags()` + FastAPI 엔드포인트 + 텔레그램 핸들러 세 곳 동시 처리
+- Next.js 프록시 (`app/api/proxy/...`): 서버 사이드 fetch는 반드시 `INTERNAL_API_URL`(기본 `http://127.0.0.1:8000`) 사용 — `localhost`는 Node.js 18+ undici가 IPv6(`::1`)로 해석해 uvicorn(IPv4)과 충돌
 
 ---
 
@@ -158,7 +177,9 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 | ~~T16~~ | ~~`prepare_day()` API 호출 최적화 (리팩⑦ 종목당 2번→1번)~~ | ~~`engine.py`, `market_data.py`~~ | ✅ 완료 |
 | ~~T17~~ | ~~`_conn()/_db()` 통합 — `api/main.py` StateManager 사용~~ | ~~`ui/api/main.py`, `autotrader/state.py`~~ | ✅ 완료 |
 
-**모든 태스크 T1~T17 완료**
+| ~~T18~~ | ~~관심종목 POST 502 버그 수정 — 프록시 localhost IPv6 충돌~~ | ~~`app/api/proxy/[...path]/route.ts`, `.env.local.example`~~ | ✅ 완료 |
+
+**모든 태스크 T1~T18 완료**
 
 ---
 
