@@ -24,10 +24,11 @@ autotrader/telegram_control.py — 텔레그램 제어 봇 (별도 실행)
 ## 핵심 실행 흐름
 
 ```
-08:55  prepare_day()     목표가 계산, 포지션 동기화, 시장 필터
+08:55  prepare_day()      DB 복원, 포지션 동기화, 시장 필터
+09:05  compute_targets()  장 시작 후 실제 시가로 목표가 계산
 09:00  on_tick() 2초마다  현재가 폴링 → 돌파 감지 → 진입
-15:15  force_close()     미청산 강제 청산
-15:30  daily_report()    일일 리포트 후 종료
+15:15  force_close()      미청산 강제 청산
+15:30  daily_report()     일일 리포트 후 종료
 ```
 
 `on_tick()` 내부 순서:
@@ -128,7 +129,7 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 - `state.py` 예외: `except Exception: pass` 금지 → `logger.error` (쓰기) / `logger.warning` (읽기)
 - `control_flags` 쓰기: `StateManager.set_control_flag()` 사용 (직접 SQL 금지)
 - `engine.py` 수정 시: `apply_runtime_flags()` 흐름과 `_target_bases` dict 영향 반드시 확인
-- WAL: 세 프로세스 모두 `PRAGMA journal_mode=WAL` 필수 (현재 `state.py` 미적용 — T1 미완)
+- WAL: 세 프로세스 모두 `PRAGMA journal_mode=WAL` 필수 (`state.py` + `api/main.py` + `telegram_control.py` 모두 적용됨)
 - 새 `control_flags` 플래그 추가 시: `apply_runtime_flags()` + FastAPI 엔드포인트 + 텔레그램 핸들러 세 곳 동시 처리
 
 ---
@@ -149,18 +150,15 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 | ~~T8~~ | ~~텔레그램 리팩 (리팩⑩ if-elif→dict, 리팩③ StateManager 전환)~~ | ~~`telegram_control.py`~~ | ✅ 완료 |
 | ~~T9~~ | ~~관심종목 Part1 — DB 우선 전환, 005930 fallback 제거~~ | ~~`run.py`, `telegram_control.py`, `api/main.py`, `.env.example`~~ | ✅ 완료 |
 | ~~T10~~ | ~~관심종목 기능A — 종목 수 제한 + 포지션 보유 확인 후 제거~~ | ~~`api/main.py`, `api.ts`, `watchlist/page.tsx`, `telegram_control.py`~~ | ✅ 완료 |
-| T11 | 종목 마스터 JSON 생성 ⚠️로컬 pykrx 실행 필요 | `scripts/build_stock_master.py`, `data/stock_master.json` | 🟠 중요 |
-| T12 | 관심종목 기능B — 자동완성 + 종목명 표시 | `api/main.py`, `StockAutocomplete.tsx`, `watchlist/page.tsx`, `api.ts` | 🟠 중요 |
-| T13 | 목표가 계산 시점 분리 (S-3, 08:55→09:05) | `run.py`, `engine.py` | 🟡 보통 |
-| T14 | U-3 SECRET 노출 — Next.js API Route 도입 | 구조 변경 필요, 별도 논의 | 🟡 보통 |
-| T15 | `engine.py` 함수 분리 리팩 (리팩⑧ _watch_entry 68줄, 리팩⑨ apply_runtime_flags 80줄) | `engine.py` | 🟡 보통 |
-| T16 | `prepare_day()` API 호출 최적화 (리팩⑦ 종목당 2번→1번) ⚠️KIS 응답 필드 확인 필요 | `engine.py`, `market_data.py`, `kis_broker.py` | 🟡 보통 |
-| T17 | `_conn()/_db()` 통합 — `api/main.py` 에서도 StateManager 사용 (리팩③ 후속) | `ui/api/main.py`, `autotrader/state.py` | 🟡 보통 |
+| ~~T11~~ | ~~종목 마스터 JSON 생성~~ | ~~`scripts/build_stock_master.py`, `data/stock_master.json`~~ | ✅ 완료 (pykrx 1.2.8 KRX 인증 필요, 시드 데이터 171개 종목 포함) |
+| ~~T12~~ | ~~관심종목 기능B — 자동완성 + 종목명 표시~~ | ~~`api/main.py`, `StockAutocomplete.tsx`, `watchlist/page.tsx`, `api.ts`~~ | ✅ 완료 |
+| ~~T13~~ | ~~목표가 계산 시점 분리 (S-3, 08:55→09:05)~~ | ~~`run.py`, `engine.py`~~ | ✅ 완료 |
+| ~~T14~~ | ~~U-3 SECRET 노출 — Next.js API Route 도입~~ | ~~`app/api/proxy/[...path]/route.ts`, `lib/api.ts`~~ | ✅ 완료 |
+| ~~T15~~ | ~~`engine.py` 함수 분리 리팩 (리팩⑧⑨)~~ | ~~`engine.py`~~ | ✅ 완료 |
+| ~~T16~~ | ~~`prepare_day()` API 호출 최적화 (리팩⑦ 종목당 2번→1번)~~ | ~~`engine.py`, `market_data.py`~~ | ✅ 완료 |
+| ~~T17~~ | ~~`_conn()/_db()` 통합 — `api/main.py` StateManager 사용~~ | ~~`ui/api/main.py`, `autotrader/state.py`~~ | ✅ 완료 |
 
-**병렬 수행 가능**: T1, T2, T5, T7, T8, T15, T16 (서로 다른 파일, 의존성 없음)  
-**순서 의존**: T6 → T9 → T10 → (T11 병렬 가능) → T12  
-**T4 이후 권장**: T15 (같은 파일 engine.py 충돌 방지)  
-**T8 이후 권장**: T17 (telegram StateManager 전환이 T8에 포함)
+**모든 태스크 T1~T17 완료**
 
 ---
 
