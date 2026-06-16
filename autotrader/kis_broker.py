@@ -36,7 +36,7 @@ _VPS_URL  = "https://openapivts.koreainvestment.com:29443"
 
 _MIN_INTERVAL = {Environment.REAL: 0.05, Environment.MOCK: 0.5}
 
-_TOKEN_CACHE_FILE = Path("_token_cache.json")
+_TOKEN_CACHE_FILE = Path(os.getenv("TOKEN_CACHE_FILE", "_token_cache.json"))
 
 
 class KISError(Exception):

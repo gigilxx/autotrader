@@ -43,6 +43,7 @@ from .position_sizing import calc_position_size
 logger = logging.getLogger("autotrader.engine")
 
 _MAX_EXIT_RETRY = 3
+_CASH_TOLERANCE_DISABLED = 999_999_999  # 로컬은 현금을 추적하지 않으므로 현금 대조 비활성화
 
 
 @dataclass
@@ -525,7 +526,7 @@ class TradingEngine:
             for sym, pos in self.local.items()
         }
         local_acct = AccountSnapshot(cash=0, positions=local_positions)
-        result = reconcile(local_acct, broker_acct, self.kill, cash_tolerance=999_999_999)
+        result = reconcile(local_acct, broker_acct, self.kill, cash_tolerance=_CASH_TOLERANCE_DISABLED)
         if not result.ok:
             logger.error("잔고 대조 불일치: %s", result.detail)
             self.alert.send_urgent(f"잔고 불일치: {result.detail}")

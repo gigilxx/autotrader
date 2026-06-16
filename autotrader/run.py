@@ -166,7 +166,7 @@ def main() -> None:
         if not _is_trading_day():
             return
         logger.info("=== 강제청산 시작 ===")
-        engine.force_close(time(15, 15))
+        engine.force_close(engine.cfg.strategy.force_close_time)
 
     @_guard
     def reconcile_job():
