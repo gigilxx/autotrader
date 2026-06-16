@@ -51,15 +51,14 @@ def check_market(
     if not bars:
         return _fallback("일봉 데이터 없음")
 
-    sorted_bars = sorted(bars, key=lambda b: b.date)
-    closes = [b.close for b in sorted_bars if b.close > 0]
+    closes = [b.close for b in bars if b.close > 0]  # bars는 최신 우선(get_daily_bars 보장)
 
     if len(closes) < 2:
         return _fallback(f"데이터 부족: {len(closes)}일")
 
     usable = min(len(closes), ma_days)
-    ma = sum(closes[-usable:]) / usable
-    current = closes[-1]
+    ma = sum(closes[:usable]) / usable
+    current = closes[0]
     ok = current > ma
 
     logger.info(

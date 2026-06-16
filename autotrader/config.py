@@ -4,7 +4,8 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from datetime import time
 
 from .models import Environment
@@ -54,12 +55,10 @@ class StrategyConfig:
 
 @dataclass
 class AppConfig:
-    env: Environment = Environment.MOCK  # 기본 모의투자
-    risk: RiskConfig = None
-    cost: CostConfig = None
-    strategy: StrategyConfig = None
-
-    def __post_init__(self) -> None:
-        self.risk = self.risk or RiskConfig()
-        self.cost = self.cost or CostConfig()
-        self.strategy = self.strategy or StrategyConfig()
+    env: Environment = field(default_factory=lambda: (
+        Environment.REAL if os.getenv("KIS_ENV", "mock").lower() == "real"
+        else Environment.MOCK
+    ))
+    risk: RiskConfig = field(default_factory=RiskConfig)
+    cost: CostConfig = field(default_factory=CostConfig)
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)

@@ -9,12 +9,15 @@
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional
+
+logger = logging.getLogger("autotrader.state")
 
 
 _DB_PATH = Path("state.db")
@@ -40,6 +43,7 @@ class StateManager:
 
     def _init_db(self) -> None:
         with self._conn() as cx:
+            cx.execute("PRAGMA journal_mode=WAL")
             cx.executescript("""
                 CREATE TABLE IF NOT EXISTS daily_state (
                     date TEXT PRIMARY KEY,
@@ -98,8 +102,8 @@ class StateManager:
                     "VALUES (?, ?, ?)",
                     (today.strftime("%Y%m%d"), trades, pnl),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("daily_state 저장 실패: %s", e)
 
     def load_daily_state(self, today: date) -> DailyState:
         try:
@@ -113,8 +117,8 @@ class StateManager:
                         trades_today=row["trades_today"],
                         realized_pnl_today=row["realized_pnl_today"],
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("daily_state 로드 실패: %s", e)
         return DailyState(trades_today=0, realized_pnl_today=0)
 
     # ---------------- sent_orders ----------------
@@ -125,8 +129,8 @@ class StateManager:
                     "INSERT OR IGNORE INTO sent_orders (order_id, date) VALUES (?, ?)",
                     (order_id, today.strftime("%Y%m%d")),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("sent_order 저장 실패 %s: %s", order_id, e)
 
     def load_sent_orders(self, today: date) -> set[str]:
         try:
@@ -136,7 +140,8 @@ class StateManager:
                     (today.strftime("%Y%m%d"),),
                 ).fetchall()
                 return {row["order_id"] for row in rows}
-        except Exception:
+        except Exception as e:
+            logger.warning("sent_orders 로드 실패: %s", e)
             return set()
 
     # ---------------- positions ----------------
@@ -148,8 +153,8 @@ class StateManager:
                     "VALUES (?, ?, ?, ?)",
                     (today.strftime("%Y%m%d"), symbol, entry_price, qty),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("포지션 저장 실패 %s: %s", symbol, e)
 
     def delete_position(self, today: date, symbol: str) -> None:
         try:
@@ -158,8 +163,8 @@ class StateManager:
                     "DELETE FROM positions WHERE date = ? AND symbol = ?",
                     (today.strftime("%Y%m%d"), symbol),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("포지션 삭제 실패 %s: %s", symbol, e)
 
     def load_positions(self, today: date) -> list[SavedPosition]:
         try:
@@ -176,7 +181,8 @@ class StateManager:
                     )
                     for row in rows
                 ]
-        except Exception:
+        except Exception as e:
+            logger.warning("positions 로드 실패: %s", e)
             return []
 
     # ---------------- trades ----------------
@@ -198,8 +204,8 @@ class StateManager:
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (today.strftime("%Y%m%d"), exit_time, symbol, entry_price, exit_price, qty, pnl, reason),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("거래 기록 실패 %s: %s", symbol, e)
 
     def get_trades(self, today: date) -> list[dict]:
         try:
@@ -210,7 +216,8 @@ class StateManager:
                     (today.strftime("%Y%m%d"),),
                 ).fetchall()
                 return [dict(row) for row in rows]
-        except Exception:
+        except Exception as e:
+            logger.warning("trades 조회 실패: %s", e)
             return []
 
     # ---------------- control_flags ----------------
@@ -221,25 +228,26 @@ class StateManager:
                     "INSERT OR REPLACE INTO control_flags (key, value, updated_at) VALUES (?, ?, datetime('now'))",
                     (key, value),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("control_flag 저장 실패 key=%s: %s", key, e)
 
-    def get_control_flag(self, key: str) -> "Optional[str]":
+    def get_control_flag(self, key: str) -> Optional[str]:
         try:
             with self._conn() as cx:
                 row = cx.execute(
                     "SELECT value FROM control_flags WHERE key = ?", (key,)
                 ).fetchone()
                 return row["value"] if row else None
-        except Exception:
+        except Exception as e:
+            logger.warning("control_flag 조회 실패 key=%s: %s", key, e)
             return None
 
     def clear_control_flag(self, key: str) -> None:
         try:
             with self._conn() as cx:
                 cx.execute("DELETE FROM control_flags WHERE key = ?", (key,))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("control_flag 삭제 실패 key=%s: %s", key, e)
 
     # ---------------- 정리 (오래된 데이터) ----------------
     def cleanup_old_data(self, keep_days: int = 30) -> None:
@@ -251,5 +259,5 @@ class StateManager:
                 cx.execute("DELETE FROM daily_state WHERE date < ?", (cutoff,))
                 cx.execute("DELETE FROM sent_orders WHERE date < ?", (cutoff,))
                 cx.execute("DELETE FROM positions WHERE date < ?", (cutoff,))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("오래된 데이터 삭제 실패: %s", e)

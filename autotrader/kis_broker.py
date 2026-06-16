@@ -203,6 +203,7 @@ class KISBroker:
                 close=int(row.get("stck_clpr", "0") or "0"),
                 volume=int(row.get("acml_vol", "0") or "0"),  # 누적 거래량(주)
             ))
+        bars.sort(key=lambda b: b.date, reverse=True)  # 최신 우선으로 정규화
         return bars
 
     # ---------------- 잔고 ----------------
