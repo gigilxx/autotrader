@@ -144,7 +144,7 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 | ~~T3~~ | ~~일봉 정렬 방향 통일 (B-5, 리팩⑪)~~ | ~~`kis_broker.py`, `market_filter.py`~~ | ✅ 완료 |
 | ~~T4~~ | ~~`engine.py` 버그 수정 (B-1 force_entry 미체결, B-2 pnl 체결가, 리팩① get_account 이중, S-4 시간제한)~~ | ~~`engine.py`, `execution.py`~~ | ✅ 완료 |
 | ~~T5~~ | ~~BreakoutDetector 캡슐화 (S-1 직접접근→메서드, S-2 데드코드)~~ | ~~`volatility_breakout.py`, `engine.py`~~ | ✅ 완료 |
-| T6 | `api/main.py` 정리 (U-2 빈watchlist, I-1 resume경쟁, 리팩④ SQL복사, 리팩⑫ 중복DB조회) | `ui/api/main.py` | 🟡 보통 |
+| ~~T6~~ | ~~`api/main.py` 정리 (U-2 빈watchlist, I-1 resume경쟁, 리팩④ SQL복사, 리팩⑫ 중복DB조회)~~ | ~~`ui/api/main.py`~~ | ✅ 완료 |
 | T7 | 기타 소항목 (B-3 cash_tolerance 상수화, O-5 토큰경로, E-2 체결실패, 리팩⑤ force_close_time 하드코딩) | `engine.py`, `kis_broker.py`, `run.py` | 🟡 보통 |
 | T8 | 텔레그램 리팩 (리팩⑩ if-elif→dict, 리팩③ StateManager 전환) | `telegram_control.py` | 🟡 보통 |
 | T9 | 관심종목 Part1 — DB 우선 전환, 005930 fallback 제거 | `run.py`, `telegram_control.py`, `api/main.py`, `.env.example` | 🟠 중요 |

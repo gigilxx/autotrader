@@ -37,10 +37,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from autotrader.state import StateManager
+
 _DB_PATH          = Path(os.getenv("STATE_DB", "state.db"))
 _LOG_PATH         = Path(os.getenv("LOG_FILE", "logs/autotrader.log"))
 _IMPORTANT_LOG    = Path(os.getenv("IMPORTANT_LOG", "logs/important.log"))
 _SECRET_KEY       = os.getenv("UI_SECRET_KEY", "")
+_sm               = StateManager(_DB_PATH)
 
 app = FastAPI(title="AutoTrader API", version="1.0")
 
@@ -120,34 +123,18 @@ def get_status() -> dict:
 
 @app.get("/positions")
 def get_positions() -> dict:
-    today = _today_str()
-    try:
-        with _db() as cx:
-            rows = cx.execute(
-                "SELECT symbol, entry_price, qty FROM positions WHERE date = ?",
-                (today,),
-            ).fetchall()
-        return {"positions": [dict(r) for r in rows]}
-    except Exception as e:
-        return {"positions": [], "error": str(e)}
+    s = _get_status_dict()
+    return {"positions": s.get("positions", [])}
 
 
 @app.get("/pnl/today")
 def get_pnl_today() -> dict:
-    today = _today_str()
-    try:
-        with _db() as cx:
-            row = cx.execute(
-                "SELECT trades_today, realized_pnl_today FROM daily_state WHERE date = ?",
-                (today,),
-            ).fetchone()
-        return {
-            "date": today,
-            "trades_today": row["trades_today"] if row else 0,
-            "realized_pnl": row["realized_pnl_today"] if row else 0,
-        }
-    except Exception as e:
-        return {"date": today, "trades_today": 0, "realized_pnl": 0, "error": str(e)}
+    s = _get_status_dict()
+    return {
+        "date": s.get("date", _today_str()),
+        "trades_today": s.get("trades_today", 0),
+        "realized_pnl": s.get("realized_pnl", 0),
+    }
 
 
 @app.get("/trades")
@@ -192,12 +179,7 @@ def get_important_logs(n: int = 200) -> dict:
 def kill(_auth: None = Depends(_require_auth)) -> dict:
     """킬스위치 작동 요청을 state.db에 기록. 봇이 5초 이내 감지."""
     try:
-        with _db() as cx:
-            cx.execute(
-                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-                "VALUES ('kill_requested', '1', datetime('now'))"
-            )
-            cx.commit()
+        _sm.set_control_flag("kill_requested", "1")
         return {"ok": True, "message": "킬스위치 요청 기록됨"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -207,13 +189,7 @@ def kill(_auth: None = Depends(_require_auth)) -> dict:
 def close_position(symbol: str, _auth: None = Depends(_require_auth)) -> dict:
     """특정 종목 수동 청산 요청. 봇이 5초 이내 감지."""
     try:
-        with _db() as cx:
-            cx.execute(
-                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-                "VALUES (?, '1', datetime('now'))",
-                (f"force_close_{symbol}",),
-            )
-            cx.commit()
+        _sm.set_control_flag(f"force_close_{symbol}", "1")
         return {"ok": True, "message": f"{symbol} 청산 요청 기록됨"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -221,15 +197,10 @@ def close_position(symbol: str, _auth: None = Depends(_require_auth)) -> dict:
 
 @app.post("/resume")
 def resume(_auth: None = Depends(_require_auth)) -> dict:
-    """킬스위치 해제 요청을 state.db에 기록."""
+    """킬스위치 해제 요청을 state.db에 기록. kill_active는 봇이 직접 처리."""
     try:
-        with _db() as cx:
-            cx.execute(
-                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-                "VALUES ('resume_requested', '1', datetime('now'))"
-            )
-            cx.execute("DELETE FROM control_flags WHERE key IN ('kill_requested', 'kill_active')")
-            cx.commit()
+        _sm.set_control_flag("resume_requested", "1")
+        _sm.clear_control_flag("kill_requested")
         return {"ok": True, "message": "킬스위치 해제 요청 기록됨"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -261,16 +232,9 @@ def get_watchlist() -> dict:
 @app.post("/watchlist")
 def set_watchlist(body: WatchlistBody, _auth: None = Depends(_require_auth)) -> dict:
     symbols = [s.strip() for s in body.symbols if re.match(r"^\d{6}$", s.strip())]
-    with _db() as cx:
-        if symbols:
-            cx.execute(
-                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-                "VALUES ('watchlist_override', ?, datetime('now'))",
-                (",".join(symbols),),
-            )
-        else:
-            cx.execute("DELETE FROM control_flags WHERE key = 'watchlist_override'")
-        cx.commit()
+    if not symbols:
+        raise HTTPException(status_code=400, detail="관심종목은 최소 1개 이상이어야 합니다")
+    _sm.set_control_flag("watchlist_override", ",".join(symbols))
     return {"ok": True, "symbols": symbols}
 
 
@@ -314,13 +278,7 @@ def get_k_value() -> dict:
 def set_k_value(body: KValueBody, _auth: None = Depends(_require_auth)) -> dict:
     if not (0.1 <= body.k <= 1.0):
         raise HTTPException(status_code=400, detail="k값은 0.1~1.0 사이여야 합니다")
-    with _db() as cx:
-        cx.execute(
-            "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-            "VALUES ('k_value', ?, datetime('now'))",
-            (str(body.k),),
-        )
-        cx.commit()
+    _sm.set_control_flag("k_value", str(body.k))
     return {"ok": True, "k": body.k}
 
 
@@ -329,13 +287,7 @@ def set_k_value(body: KValueBody, _auth: None = Depends(_require_auth)) -> dict:
 def force_entry(symbol: str, _auth: None = Depends(_require_auth)) -> dict:
     if not re.match(r"^\d{6}$", symbol):
         raise HTTPException(status_code=400, detail="유효하지 않은 종목코드 (6자리 숫자)")
-    with _db() as cx:
-        cx.execute(
-            "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-            "VALUES (?, '1', datetime('now'))",
-            (f"force_entry_{symbol}",),
-        )
-        cx.commit()
+    _sm.set_control_flag(f"force_entry_{symbol}", "1")
     return {"ok": True, "message": f"{symbol} 강제 진입 요청 기록됨 (5초 내 처리)"}
 
 
