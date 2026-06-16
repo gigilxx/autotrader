@@ -25,12 +25,15 @@ import logging
 import os
 import sqlite3
 import sys
-
-from dotenv import load_dotenv
-load_dotenv()
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
+from typing import Callable
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from .state import StateManager
 
 logger = logging.getLogger("autotrader.telegram_control")
 
@@ -38,39 +41,12 @@ _TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 _CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 _DB_PATH = Path(os.getenv("STATE_DB", "state.db"))
 
+_sm = StateManager(_DB_PATH)
+
 _PENDING_KILL: set[int] = set()  # /kill 확인 대기 중인 chat_id
 
 
-def _get_watchlist() -> list[str]:
-    try:
-        with _db() as cx:
-            row = cx.execute(
-                "SELECT value FROM control_flags WHERE key = 'watchlist_override'"
-            ).fetchone()
-            if row:
-                return [s.strip() for s in row["value"].split(",") if s.strip()]
-    except Exception:
-        pass
-    return [s.strip() for s in os.getenv("WATCHLIST", "005930").split(",") if s.strip()]
-
-
-def _set_watchlist(symbols: list[str]) -> None:
-    with _db() as cx:
-        cx.execute(
-            "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-            "VALUES ('watchlist_override', ?, datetime('now'))",
-            (",".join(symbols),),
-        )
-        cx.commit()
-
-
-def _require_env() -> None:
-    missing = [k for k in ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID") if not os.getenv(k)]
-    if missing:
-        print(f"환경변수 누락: {', '.join(missing)}")
-        sys.exit(1)
-
-
+# ─── DB 헬퍼 (복잡한 읽기 쿼리용) ──────────────────────────
 @contextmanager
 def _db():
     cx = sqlite3.connect(str(_DB_PATH), timeout=5, check_same_thread=False)
@@ -86,28 +62,25 @@ def _today() -> str:
     return date.today().strftime("%Y%m%d")
 
 
-def _set_flag(key: str, value: str = "1") -> None:
-    try:
-        with _db() as cx:
-            cx.execute(
-                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-                "VALUES (?, ?, datetime('now'))",
-                (key, value),
-            )
-            cx.commit()
-    except Exception as e:
-        logger.error("control_flag 설정 실패: %s", e)
+def _get_watchlist() -> list[str]:
+    raw = _sm.get_control_flag("watchlist_override")
+    if raw:
+        return [s.strip() for s in raw.split(",") if s.strip()]
+    return [s.strip() for s in os.getenv("WATCHLIST", "005930").split(",") if s.strip()]
 
 
-def _clear_flag(key: str) -> None:
-    try:
-        with _db() as cx:
-            cx.execute("DELETE FROM control_flags WHERE key = ?", (key,))
-            cx.commit()
-    except Exception:
-        pass
+def _set_watchlist(symbols: list[str]) -> None:
+    _sm.set_control_flag("watchlist_override", ",".join(symbols))
 
 
+def _require_env() -> None:
+    missing = [k for k in ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID") if not os.getenv(k)]
+    if missing:
+        print(f"환경변수 누락: {', '.join(missing)}")
+        sys.exit(1)
+
+
+# ─── 상태 조회 헬퍼 ─────────────────────────────────────────
 def _build_status_text() -> str:
     today = _today()
     try:
@@ -183,99 +156,113 @@ _HELP_TEXT = """\
   /help          이 도움말"""
 
 
-def _handle_command(chat_id: int, text: str) -> str:
-    cmd = text.strip().split()[0].lower()
+# ─── 명령어 핸들러 ──────────────────────────────────────────
+def _cmd_status(chat_id: int, parts: list[str]) -> str:
+    return _build_status_text()
 
+
+def _cmd_kill(chat_id: int, parts: list[str]) -> str:
+    _PENDING_KILL.add(chat_id)
+    return "⚠️ 킬스위치를 작동하시겠습니까?\n/confirm_kill 로 최종 확인하세요."
+
+
+def _cmd_confirm_kill(chat_id: int, parts: list[str]) -> str:
+    if chat_id not in _PENDING_KILL:
+        return "먼저 /kill 을 입력하세요."
+    _PENDING_KILL.discard(chat_id)
+    _sm.set_control_flag("kill_requested", "1")
+    return "🚨 킬스위치 요청 완료. 봇이 5초 이내 정지합니다."
+
+
+def _cmd_resume(chat_id: int, parts: list[str]) -> str:
+    _PENDING_KILL.discard(chat_id)
+    _sm.set_control_flag("resume_requested", "1")
+    _sm.clear_control_flag("kill_requested")
+    # kill_active는 봇이 resume_requested 처리 시 직접 삭제 (I-1 경쟁조건 방지)
+    return "✅ 킬스위치 해제 요청 완료."
+
+
+def _cmd_trades(chat_id: int, parts: list[str]) -> str:
+    return _build_trades_text()
+
+
+def _cmd_help(chat_id: int, parts: list[str]) -> str:
+    return _HELP_TEXT
+
+
+def _cmd_market(chat_id: int, parts: list[str]) -> str:
+    summary = _sm.get_control_flag("market_filter_summary")
+    if summary:
+        return summary
+    return "시장 필터 데이터 없음\n(오늘 08:55 prepare_day 이후 확인 가능)"
+
+
+def _cmd_watchlist(chat_id: int, parts: list[str]) -> str:
+    wl = _get_watchlist()
+    return "관심종목:\n" + "\n".join(f"  {s}" for s in wl)
+
+
+def _cmd_watch_add(chat_id: int, parts: list[str]) -> str:
+    if len(parts) < 2:
+        return "사용법: /watch_add 종목코드  예) /watch_add 000660"
+    sym = parts[1].strip().upper()
+    wl = _get_watchlist()
+    if sym not in wl:
+        wl.append(sym)
+        _set_watchlist(wl)
+    return f"✅ {sym} 추가 (다음 장 목표가 계산)\n관심종목: {', '.join(wl)}"
+
+
+def _cmd_watch_del(chat_id: int, parts: list[str]) -> str:
+    if len(parts) < 2:
+        return "사용법: /watch_del 종목코드  예) /watch_del 000660"
+    sym = parts[1].strip().upper()
+    wl = _get_watchlist()
+    if sym in wl:
+        wl.remove(sym)
+        _set_watchlist(wl)
+    return f"✅ {sym} 제거 (보유 중이면 즉시 청산)\n관심종목: {', '.join(wl)}"
+
+
+def _cmd_k(chat_id: int, parts: list[str]) -> str:
+    if len(parts) < 2:
+        current = _sm.get_control_flag("k_value") or os.getenv("K_VALUE", "0.5")
+        return f"현재 k값: {current}\n변경: /k 0.5  (0.1~1.0, 다음 prepare_day 적용)"
+    try:
+        k = float(parts[1])
+        if not (0.1 <= k <= 1.0):
+            return "k값은 0.1~1.0 사이여야 합니다."
+    except ValueError:
+        return f"잘못된 값: {parts[1]}"
+    _sm.set_control_flag("k_value", str(k))
+    return f"✅ k값 → {k} (5초 내 적용, 미진입 종목 목표가 즉시 재계산)"
+
+
+_HANDLERS: dict[str, Callable[[int, list[str]], str]] = {
+    "/status":       _cmd_status,
+    "/kill":         _cmd_kill,
+    "/confirm_kill": _cmd_confirm_kill,
+    "/resume":       _cmd_resume,
+    "/trades":       _cmd_trades,
+    "/help":         _cmd_help,
+    "/market":       _cmd_market,
+    "/watchlist":    _cmd_watchlist,
+    "/watch_add":    _cmd_watch_add,
+    "/watch_del":    _cmd_watch_del,
+    "/k":            _cmd_k,
+}
+
+
+def _handle_command(chat_id: int, text: str) -> str:
     if str(chat_id) != _CHAT_ID:
         logger.warning("미허가 chat_id: %s (허가된 ID: %s)", chat_id, _CHAT_ID)
         return "⛔ 허가되지 않은 사용자"
 
-    if cmd == "/status":
-        return _build_status_text()
-
-    if cmd == "/kill":
-        _PENDING_KILL.add(chat_id)
-        return "⚠️ 킬스위치를 작동하시겠습니까?\n/confirm_kill 로 최종 확인하세요."
-
-    if cmd == "/confirm_kill":
-        if chat_id not in _PENDING_KILL:
-            return "먼저 /kill 을 입력하세요."
-        _PENDING_KILL.discard(chat_id)
-        _set_flag("kill_requested")
-        return "🚨 킬스위치 요청 완료. 봇이 5초 이내 정지합니다."
-
-    if cmd == "/resume":
-        _PENDING_KILL.discard(chat_id)
-        _set_flag("resume_requested")
-        _clear_flag("kill_requested")
-        _clear_flag("kill_active")
-        return "✅ 킬스위치 해제 요청 완료."
-
-    if cmd == "/trades":
-        return _build_trades_text()
-
-    if cmd == "/help":
-        return _HELP_TEXT
-
-    if cmd == "/market":
-        try:
-            with _db() as cx:
-                row = cx.execute(
-                    "SELECT value FROM control_flags WHERE key = 'market_filter_summary'"
-                ).fetchone()
-            if row:
-                return row["value"]
-            return "시장 필터 데이터 없음\n(오늘 08:55 prepare_day 이후 확인 가능)"
-        except Exception as e:
-            return f"조회 실패: {e}"
-
-    if cmd == "/watchlist":
-        wl = _get_watchlist()
-        return "관심종목:\n" + "\n".join(f"  {s}" for s in wl)
-
-    if cmd in ("/watch_add", "/watch_del"):
-        parts = text.strip().split()
-        if len(parts) < 2:
-            return f"사용법: {cmd} 종목코드  예) {cmd} 000660"
-        sym = parts[1].strip().upper()
-        wl = _get_watchlist()
-        if cmd == "/watch_add":
-            if sym not in wl:
-                wl.append(sym)
-                _set_watchlist(wl)
-            return f"✅ {sym} 추가 (다음 장 목표가 계산)\n관심종목: {', '.join(wl)}"
-        else:
-            if sym in wl:
-                wl.remove(sym)
-                _set_watchlist(wl)
-            return f"✅ {sym} 제거 (보유 중이면 즉시 청산)\n관심종목: {', '.join(wl)}"
-
-    if cmd == "/k":
-        parts = text.strip().split()
-        if len(parts) < 2:
-            try:
-                with _db() as cx:
-                    row = cx.execute(
-                        "SELECT value FROM control_flags WHERE key = 'k_value'"
-                    ).fetchone()
-                    current = row["value"] if row else os.getenv("K_VALUE", "0.5")
-            except Exception:
-                current = "?"
-            return f"현재 k값: {current}\n변경: /k 0.5  (0.1~1.0, 다음 prepare_day 적용)"
-        try:
-            k = float(parts[1])
-            if not (0.1 <= k <= 1.0):
-                return "k값은 0.1~1.0 사이여야 합니다."
-        except ValueError:
-            return f"잘못된 값: {parts[1]}"
-        with _db() as cx:
-            cx.execute(
-                "INSERT OR REPLACE INTO control_flags (key, value, updated_at) "
-                "VALUES ('k_value', ?, datetime('now'))",
-                (str(k),),
-            )
-            cx.commit()
-        return f"✅ k값 → {k} (5초 내 적용, 미진입 종목 목표가 즉시 재계산)"
+    parts = text.strip().split()
+    cmd = parts[0].lower()
+    handler = _HANDLERS.get(cmd)
+    if handler:
+        return handler(chat_id, parts)
 
     _PENDING_KILL.discard(chat_id)
     return f"알 수 없는 명령: {cmd}\n/help 로 도움말 확인"
