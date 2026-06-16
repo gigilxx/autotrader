@@ -139,23 +139,28 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 
 | ID | 내용 | 핵심 파일 | 우선순위 |
 |---|---|---|---|
-| T1 | `state.py` WAL + pass→log | `state.py` | 🔴 높음 |
-| T2 | `config.py` env/타입 수정 | `config.py` | 🔴 높음 |
-| T3 | 일봉 정렬 방향 통일 ⚠️KIS방향 확인 필요 | `kis_broker.py`, `market_filter.py` | 🔴 높음 |
-| T4 | `engine.py` 버그 수정 (B-1,B-2,리팩①,S-4) | `engine.py`, `execution.py` | 🟠 중요 |
-| T5 | BreakoutDetector 캡슐화 (S-1,S-2) | `volatility_breakout.py`, `engine.py` | 🟡 보통 |
-| T6 | `api/main.py` 정리 (U-2,I-1,리팩④⑫) | `ui/api/main.py` | 🟡 보통 |
-| T7 | 기타 소항목 (B-3,O-5,E-2) | `engine.py`, `kis_broker.py` | 🟡 보통 |
-| T8 | 텔레그램 if-elif→dict 리팩 | `telegram_control.py` | 🟡 보통 |
-| T9 | 관심종목 Part1 — DB 우선 전환 | `run.py`, `telegram_control.py`, `api/main.py` | 🟠 중요 |
-| T10 | 관심종목 기능A — 종목 수 제한 | `api/main.py`, `api.ts`, `page.tsx`, `telegram_control.py` | 🟠 중요 |
-| T11 | 종목 마스터 JSON 생성 ⚠️로컬실행필요 | `scripts/build_stock_master.py` | 🟠 중요 |
-| T12 | 관심종목 기능B — 자동완성+종목명 | `api/main.py`, `StockAutocomplete.tsx`, `page.tsx` | 🟠 중요 |
-| T13 | 목표가 계산 시점 분리 (S-3, 09:05 분리) | `run.py`, `engine.py` | 🟡 보통 |
-| T14 | U-3 SECRET 노출 — Next.js API Route | 구조 변경 필요, 별도 논의 | 🟡 보통 |
+| T1 | `state.py` WAL + pass→log (R-3, O-6, 리팩②③) | `state.py` | 🔴 높음 |
+| T2 | `config.py` env MOCK 고정 + 타입 None (O-1, 리팩⑥) | `config.py` | 🔴 높음 |
+| T3 | 일봉 정렬 방향 통일 ⚠️KIS응답 방향 확인 필요 (B-5, 리팩⑪) | `kis_broker.py`, `market_filter.py` | 🔴 높음 |
+| T4 | `engine.py` 버그 수정 (B-1 force_entry 미체결, B-2 pnl 체결가, 리팩① get_account 이중, S-4 시간제한) | `engine.py`, `execution.py` | 🟠 중요 |
+| T5 | BreakoutDetector 캡슐화 (S-1 직접접근→메서드, S-2 데드코드) | `volatility_breakout.py`, `engine.py` | 🟡 보통 |
+| T6 | `api/main.py` 정리 (U-2 빈watchlist, I-1 resume경쟁, 리팩④ SQL복사, 리팩⑫ 중복DB조회) | `ui/api/main.py` | 🟡 보통 |
+| T7 | 기타 소항목 (B-3 cash_tolerance 상수화, O-5 토큰경로, E-2 체결실패, 리팩⑤ force_close_time 하드코딩) | `engine.py`, `kis_broker.py`, `run.py` | 🟡 보통 |
+| T8 | 텔레그램 리팩 (리팩⑩ if-elif→dict, 리팩③ StateManager 전환) | `telegram_control.py` | 🟡 보통 |
+| T9 | 관심종목 Part1 — DB 우선 전환, 005930 fallback 제거 | `run.py`, `telegram_control.py`, `api/main.py`, `.env.example` | 🟠 중요 |
+| T10 | 관심종목 기능A — 종목 수 제한 + 포지션 보유 확인 후 제거 | `api/main.py`, `api.ts`, `watchlist/page.tsx`, `telegram_control.py` | 🟠 중요 |
+| T11 | 종목 마스터 JSON 생성 ⚠️로컬 pykrx 실행 필요 | `scripts/build_stock_master.py`, `data/stock_master.json` | 🟠 중요 |
+| T12 | 관심종목 기능B — 자동완성 + 종목명 표시 | `api/main.py`, `StockAutocomplete.tsx`, `watchlist/page.tsx`, `api.ts` | 🟠 중요 |
+| T13 | 목표가 계산 시점 분리 (S-3, 08:55→09:05) | `run.py`, `engine.py` | 🟡 보통 |
+| T14 | U-3 SECRET 노출 — Next.js API Route 도입 | 구조 변경 필요, 별도 논의 | 🟡 보통 |
+| T15 | `engine.py` 함수 분리 리팩 (리팩⑧ _watch_entry 68줄, 리팩⑨ apply_runtime_flags 80줄) | `engine.py` | 🟡 보통 |
+| T16 | `prepare_day()` API 호출 최적화 (리팩⑦ 종목당 2번→1번) ⚠️KIS 응답 필드 확인 필요 | `engine.py`, `market_data.py`, `kis_broker.py` | 🟡 보통 |
+| T17 | `_conn()/_db()` 통합 — `api/main.py` 에서도 StateManager 사용 (리팩③ 후속) | `ui/api/main.py`, `autotrader/state.py` | 🟡 보통 |
 
-**병렬 수행 가능**: T1, T2, T5, T7, T8 (서로 다른 파일, 의존성 없음)  
-**순서 의존**: T6 → T9 → T10 → T11 → T12
+**병렬 수행 가능**: T1, T2, T5, T7, T8, T15, T16 (서로 다른 파일, 의존성 없음)  
+**순서 의존**: T6 → T9 → T10 → (T11 병렬 가능) → T12  
+**T4 이후 권장**: T15 (같은 파일 engine.py 충돌 방지)  
+**T8 이후 권장**: T17 (telegram StateManager 전환이 T8에 포함)
 
 ---
 
