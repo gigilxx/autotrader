@@ -66,7 +66,7 @@ def _get_watchlist() -> list[str]:
     raw = _sm.get_control_flag("watchlist_override")
     if raw:
         return [s.strip() for s in raw.split(",") if s.strip()]
-    return [s.strip() for s in os.getenv("WATCHLIST", "005930").split(",") if s.strip()]
+    return [s.strip() for s in os.getenv("WATCHLIST", "").split(",") if s.strip()]
 
 
 def _set_watchlist(symbols: list[str]) -> None:

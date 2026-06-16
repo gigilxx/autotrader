@@ -217,14 +217,11 @@ class KValueBody(BaseModel):
 # ─── 관심종목 ─────────────────────────────────────────────
 @app.get("/watchlist")
 def get_watchlist() -> dict:
-    with _db() as cx:
-        row = cx.execute(
-            "SELECT value FROM control_flags WHERE key = 'watchlist_override'"
-        ).fetchone()
-    if row:
-        symbols = [s.strip() for s in row["value"].split(",") if s.strip()]
+    raw = _sm.get_control_flag("watchlist_override")
+    if raw:
+        symbols = [s.strip() for s in raw.split(",") if s.strip()]
     else:
-        wl_env = os.getenv("WATCHLIST", "005930")
+        wl_env = os.getenv("WATCHLIST", "")
         symbols = [s.strip() for s in wl_env.split(",") if s.strip()]
     return {"symbols": symbols}
 

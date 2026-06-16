@@ -124,9 +124,16 @@ def main() -> None:
     _setup_logging()
     logger = logging.getLogger("autotrader.run")
 
-    watchlist_env = os.getenv("WATCHLIST", "005930")
-    watchlist = [s.strip() for s in watchlist_env.split(",") if s.strip()]
-    logger.info("관심종목: %s", watchlist)
+    # DB(watchlist_override) 우선, 없으면 WATCHLIST 환경변수
+    _init_state = StateManager()
+    wl_from_db = _init_state.get_control_flag("watchlist_override")
+    if wl_from_db:
+        watchlist = [s.strip() for s in wl_from_db.split(",") if s.strip()]
+        logger.info("관심종목 (DB): %s", watchlist)
+    else:
+        watchlist_env = os.getenv("WATCHLIST", "")
+        watchlist = [s.strip() for s in watchlist_env.split(",") if s.strip()]
+        logger.info("관심종목 (ENV): %s", watchlist)
 
     engine = build_engine(watchlist)
     scheduler = BlockingScheduler(timezone=KST)

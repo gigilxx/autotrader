@@ -147,7 +147,7 @@ UI_SECRET_KEY=            # 비우면 인증 생략 (개발용)
 | ~~T6~~ | ~~`api/main.py` 정리 (U-2 빈watchlist, I-1 resume경쟁, 리팩④ SQL복사, 리팩⑫ 중복DB조회)~~ | ~~`ui/api/main.py`~~ | ✅ 완료 |
 | ~~T7~~ | ~~기타 소항목 (B-3 cash_tolerance 상수화, O-5 토큰경로, 리팩⑤ force_close_time 하드코딩)~~ | ~~`engine.py`, `kis_broker.py`, `run.py`~~ | ✅ 완료 (E-2 체결실패는 T4에서 처리됨) |
 | ~~T8~~ | ~~텔레그램 리팩 (리팩⑩ if-elif→dict, 리팩③ StateManager 전환)~~ | ~~`telegram_control.py`~~ | ✅ 완료 |
-| T9 | 관심종목 Part1 — DB 우선 전환, 005930 fallback 제거 | `run.py`, `telegram_control.py`, `api/main.py`, `.env.example` | 🟠 중요 |
+| ~~T9~~ | ~~관심종목 Part1 — DB 우선 전환, 005930 fallback 제거~~ | ~~`run.py`, `telegram_control.py`, `api/main.py`, `.env.example`~~ | ✅ 완료 |
 | T10 | 관심종목 기능A — 종목 수 제한 + 포지션 보유 확인 후 제거 | `api/main.py`, `api.ts`, `watchlist/page.tsx`, `telegram_control.py` | 🟠 중요 |
 | T11 | 종목 마스터 JSON 생성 ⚠️로컬 pykrx 실행 필요 | `scripts/build_stock_master.py`, `data/stock_master.json` | 🟠 중요 |
 | T12 | 관심종목 기능B — 자동완성 + 종목명 표시 | `api/main.py`, `StockAutocomplete.tsx`, `watchlist/page.tsx`, `api.ts` | 🟠 중요 |
