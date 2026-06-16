@@ -209,25 +209,91 @@ npm run build
 
 ## 7. 봇 자동 시작 — Task Scheduler 등록
 
-### 6-1. XML 파일 경로 확인
+트레이딩 봇과 텔레그램 봇 두 개를 각각 등록한다.
 
-`autotrader_task.xml` 이 이미 `C:\repo\autotrader\autotrader_task.xml`에 있음.  
-동작 경로가 `C:\repo\autotrader\run.bat`으로 설정되어 있어 그대로 사용 가능.
+### 7-1. AutoTraderBot (트레이딩 봇)
 
-### 6-2. 작업 등록
-
-```powershell
-schtasks /Create /XML "C:\repo\autotrader\autotrader_task.xml" /TN "AutoTraderBot" /F
-```
-
-### 6-3. 등록 확인
+평일 08:50에 자동 실행, 15:30 장 마감 후 자동 종료.  
+비정상 종료 시 1분 간격으로 최대 3회 재시작.
 
 ```powershell
-schtasks /Query /TN "AutoTraderBot" /FO LIST
+$action = New-ScheduledTaskAction `
+    -Execute "python" `
+    -Argument "-m autotrader.run" `
+    -WorkingDirectory "C:\repo\autotrader"
+
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "08:50"
+
+$settings = New-ScheduledTaskSettingsSet `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -RestartCount 3 `
+    -RestartInterval (New-TimeSpan -Minutes 1)
+
+Register-ScheduledTask `
+    -TaskName "AutoTraderBot" `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -RunLevel Highest
 ```
 
-> 평일 08:50에 자동 시작, 15:30 장 마감 후 자동 종료.  
-> 수동 테스트: `schtasks /Run /TN "AutoTraderBot"`
+등록 확인:
+```powershell
+Get-ScheduledTask -TaskName "AutoTraderBot"
+```
+
+수동 실행 (등록 후 바로 오늘 장 중에 시작하고 싶을 때):
+```powershell
+Start-ScheduledTask -TaskName "AutoTraderBot"
+```
+
+> **주의**: 기존 python 프로세스가 살아있으면 중복 실행되므로 먼저 종료할 것  
+> `Get-Process -Name python | Stop-Process`
+
+---
+
+### 7-2. AutoTraderTelegram (텔레그램 제어 봇)
+
+텔레그램 봇은 장 시간과 무관하게 **24시간 상시 실행** 필요.  
+서버 부팅 시 자동 시작, 비정상 종료 시 1분 간격으로 최대 10회 재시작.
+
+```powershell
+$action = New-ScheduledTaskAction `
+    -Execute "python" `
+    -Argument "-m autotrader.telegram_control" `
+    -WorkingDirectory "C:\repo\autotrader"
+
+$trigger = New-ScheduledTaskTrigger -AtStartup
+
+$settings = New-ScheduledTaskSettingsSet `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -RestartCount 10 `
+    -RestartInterval (New-TimeSpan -Minutes 1)
+
+Register-ScheduledTask `
+    -TaskName "AutoTraderTelegram" `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -RunLevel Highest
+```
+
+등록 확인:
+```powershell
+Get-ScheduledTask -TaskName "AutoTraderTelegram"
+```
+
+등록 후 바로 시작:
+```powershell
+Start-ScheduledTask -TaskName "AutoTraderTelegram"
+```
+
+동작 확인 (python 프로세스가 새로 떴는지):
+```powershell
+Get-Process -Name python
+```
+
+> 텔레그램에서 `/status` 명령 입력 시 응답 오면 정상 동작 확인 완료
 
 ---
 
