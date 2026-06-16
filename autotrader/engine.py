@@ -81,6 +81,7 @@ class TradingEngine:
 
         self.detector = BreakoutDetector()
         self.targets: dict[str, float] = {}
+        self._target_bases: dict[str, tuple[int, int, int]] = {}  # sym → (prev_high, prev_low, today_open)
         self.local: dict[str, _Local] = {}
         self._today: Optional[date] = None
         self.reporter = ReportCollector()
@@ -143,10 +144,12 @@ class TradingEngine:
         # 5) 목표가 계산
         self.detector.reset_day()
         self.targets.clear()
+        self._target_bases.clear()
         for sym in self.watchlist:
             try:
                 prev = self.data.get_prev_day_bar(sym)
                 q = self.data.get_quote(sym)
+                self._target_bases[sym] = (prev.high, prev.low, q.open)
                 self.targets[sym] = compute_target_price(
                     prev.high, prev.low, q.open, self.cfg.strategy.k
                 )
@@ -401,6 +404,7 @@ class TradingEngine:
                         try:
                             prev = self.data.get_prev_day_bar(sym)
                             q = self.data.get_quote(sym)
+                            self._target_bases[sym] = (prev.high, prev.low, q.open)
                             target = compute_target_price(
                                 prev.high, prev.low, q.open, self.cfg.strategy.k
                             )
@@ -424,7 +428,7 @@ class TradingEngine:
                 self.watchlist = new_wl
                 logger.info("watchlist 업데이트: %s", self.watchlist)
 
-        # k값 변경 — 즉시 반영(다음 prepare_day부터 목표가에 적용)
+        # k값 변경 — cfg 즉시 반영 + 미진입 종목 목표가 즉시 재계산
         k_str = sm.get_control_flag("k_value")
         if k_str is not None:
             try:
@@ -433,7 +437,17 @@ class TradingEngine:
                     logger.info("k값 변경: %.2f → %.2f", self.cfg.strategy.k, new_k)
                     self.cfg.strategy.k = new_k
                     sm.set_control_flag("current_k", str(new_k))
-                    self.alert.send(f"k값 변경됨: {new_k}")
+                    # 미진입 종목 목표가 즉시 재계산
+                    for sym, (ph, pl, op) in self._target_bases.items():
+                        if sym not in self.local:
+                            new_target = compute_target_price(ph, pl, op, new_k)
+                            old_target = self.targets.get(sym, 0)
+                            self.targets[sym] = new_target
+                            logger.info(
+                                "목표가 재계산 %s: %.0f → %.0f (k=%.2f)",
+                                sym, old_target, new_target, new_k,
+                            )
+                    self.alert.send(f"k값 변경됨: {new_k} (미진입 종목 목표가 즉시 반영)")
             except ValueError:
                 pass
             sm.clear_control_flag("k_value")

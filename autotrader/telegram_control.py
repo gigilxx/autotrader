@@ -275,7 +275,7 @@ def _handle_command(chat_id: int, text: str) -> str:
                 (str(k),),
             )
             cx.commit()
-        return f"✅ k값 → {k} (오늘 08:55 prepare_day 또는 다음 장 적용)"
+        return f"✅ k값 → {k} (5초 내 적용, 미진입 종목 목표가 즉시 재계산)"
 
     _PENDING_KILL.discard(chat_id)
     return f"알 수 없는 명령: {cmd}\n/help 로 도움말 확인"
