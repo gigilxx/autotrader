@@ -95,7 +95,7 @@ class TradingEngine:
     # ---------------- 거래일 시작 ----------------
     def prepare_day(self, today: Optional[date] = None) -> None:
         """08:55 실행 — DB 복원·브로커 동기화·시장 필터. 목표가는 compute_targets()에서 09:05에 계산."""
-        self._today = today or date.today()
+        self._today = today or datetime.now(_KST).date()
         today_d = self._today
 
         # 1) state.db에서 일일 카운터 복원
@@ -286,7 +286,7 @@ class TradingEngine:
     def _persist_entry(self, sym: str, oid: str, fill_price: int, filled_qty: int) -> None:
         """체결 완료된 진입 정보를 local/state에 기록 (알림 제외)."""
         self.local[sym] = _Local(entry_price=fill_price, qty=filled_qty)
-        today_d = self._today or date.today()
+        today_d = self._today or datetime.now(_KST).date()
         self.state.save_position(today_d, sym, fill_price, filled_qty)
         self.state.add_sent_order(oid, today_d)
         self.state.save_daily_state(today_d, self.gate.trades_today, self.gate.realized_pnl_today)
@@ -332,7 +332,7 @@ class TradingEngine:
                 pnl = net_pnl(pos.entry_price, actual_px, pos.qty, self.cfg.cost)
                 self.gate.register_realized_pnl(pnl)
 
-                today_d = self._today or date.today()
+                today_d = self._today or datetime.now(_KST).date()
                 exit_time = _now_hms()
                 self.state.delete_position(today_d, sym)
                 self.state.save_daily_state(
@@ -557,8 +557,8 @@ class TradingEngine:
 
 def _bar_ts() -> str:
     """멱등 주문 ID용 봉 타임스탬프(분 단위)."""
-    return datetime.now().strftime("%Y%m%dT%H%M")
+    return datetime.now(_KST).strftime("%Y%m%dT%H%M")
 
 
 def _now_hms() -> str:
-    return datetime.now().strftime("%H:%M:%S")
+    return datetime.now(_KST).strftime("%H:%M:%S")

@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 import requests
@@ -30,6 +31,8 @@ from .models import (
     AccountSnapshot, DailyBar, Environment, FilledOrder,
     OrderRequest, Position, Quote, Side,
 )
+
+_KST = ZoneInfo("Asia/Seoul")
 
 _PROD_URL = "https://openapi.koreainvestment.com:9443"
 _VPS_URL  = "https://openapivts.koreainvestment.com:29443"
@@ -69,7 +72,8 @@ class KISBroker:
             if _TOKEN_CACHE_FILE.exists():
                 data = json.loads(_TOKEN_CACHE_FILE.read_text(encoding="utf-8"))
                 expire = datetime.fromisoformat(data["expire"])
-                if datetime.now() < expire:
+                expire = expire if expire.tzinfo else expire.replace(tzinfo=_KST)
+                if datetime.now(_KST) < expire:
                     self._token = data["token"]
                     self._token_expire = expire
         except Exception:
@@ -86,7 +90,7 @@ class KISBroker:
 
     # ---------------- 인증 ----------------
     def _ensure_token(self) -> str:
-        if self._token and datetime.now() < self._token_expire:
+        if self._token and datetime.now(_KST) < self._token_expire:
             return self._token
 
         url = f"{self.base_url}/oauth2/tokenP"
@@ -107,7 +111,7 @@ class KISBroker:
         data = r.json()
         self._token = data["access_token"]
         expires_in = int(data.get("expires_in", 86400))
-        self._token_expire = datetime.now() + timedelta(seconds=expires_in - 300)
+        self._token_expire = datetime.now(_KST) + timedelta(seconds=expires_in - 300)
         self._save_token_cache()
         return self._token
 
@@ -319,8 +323,8 @@ class KISBroker:
         params = {
             "CANO": self.creds.cano,
             "ACNT_PRDT_CD": self.creds.acnt_prdt_cd,
-            "INQR_STRT_DT": datetime.now().strftime("%Y%m%d"),
-            "INQR_END_DT":  datetime.now().strftime("%Y%m%d"),
+            "INQR_STRT_DT": datetime.now(_KST).strftime("%Y%m%d"),
+            "INQR_END_DT":  datetime.now(_KST).strftime("%Y%m%d"),
             "SLL_BUY_DVSN_CD": "00",
             "INQR_DVSN": "00",
             "PDNO": symbol,

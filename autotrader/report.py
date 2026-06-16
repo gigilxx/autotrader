@@ -9,6 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
 
 
 @dataclass
@@ -19,7 +22,7 @@ class TradeRecord:
     qty: int
     pnl: int
     reason: str
-    exit_time: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S"))
+    exit_time: str = field(default_factory=lambda: datetime.now(_KST).strftime("%H:%M:%S"))
 
 
 @dataclass
@@ -98,6 +101,6 @@ class ReportCollector:
 
     def build(self) -> DailyReport:
         return DailyReport(
-            report_date=self._date or date.today(),
+            report_date=self._date or datetime.now(_KST).date(),
             trades=list(self._trades),
         )

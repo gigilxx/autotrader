@@ -13,7 +13,10 @@
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
 from typing import Protocol
 
 from .kis_broker import KISBroker
@@ -38,7 +41,7 @@ class KISMarketData:
 
         여기서는 '오늘 날짜가 아닌 첫 봉'을 전일로 본다.
         """
-        today = today or date.today().strftime("%Y%m%d")
+        today = today or datetime.now(_KST).date().strftime("%Y%m%d")
         bars = self.broker.get_daily_bars(symbol)
         for b in bars:
             if b.date and b.date != today:
@@ -53,7 +56,7 @@ class KISMarketData:
         일봉 응답에 오늘 날짜가 포함되어 있으면 1콜로 완료.
         오늘 봉이 없거나 시가가 0이면 get_quote 추가 호출(안전 fallback).
         """
-        today = date.today().strftime("%Y%m%d")
+        today = datetime.now(_KST).date().strftime("%Y%m%d")
         bars = self.broker.get_daily_bars(symbol)
 
         today_open: int = 0

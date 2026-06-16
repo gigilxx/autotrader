@@ -27,7 +27,8 @@ import asyncio
 import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from functools import lru_cache
 from pathlib import Path
 
@@ -38,6 +39,7 @@ from pydantic import BaseModel
 
 from autotrader.state import StateManager
 
+_KST              = ZoneInfo("Asia/Seoul")
 _DB_PATH          = Path(os.getenv("STATE_DB", "state.db"))
 _LOG_PATH         = Path(os.getenv("LOG_FILE", "logs/autotrader.log"))
 _IMPORTANT_LOG    = Path(os.getenv("IMPORTANT_LOG", "logs/important.log"))
@@ -60,7 +62,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def _today_str() -> str:
-    return date.today().strftime("%Y%m%d")
+    return datetime.now(_KST).date().strftime("%Y%m%d")
 
 
 # ─── 인증 ──────────────────────────────────────────────────

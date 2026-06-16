@@ -26,7 +26,8 @@ import os
 import sqlite3
 import sys
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Callable
 
@@ -36,6 +37,8 @@ load_dotenv()
 from .state import StateManager
 
 logger = logging.getLogger("autotrader.telegram_control")
+
+_KST = ZoneInfo("Asia/Seoul")
 
 _TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 _CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -60,7 +63,7 @@ def _db():
 
 
 def _today() -> str:
-    return date.today().strftime("%Y%m%d")
+    return datetime.now(_KST).date().strftime("%Y%m%d")
 
 
 def _get_watchlist() -> list[str]:

@@ -13,8 +13,11 @@ is_market_day(d) → bool
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
 
 import holidays
 
@@ -29,7 +32,7 @@ def add_closure(d: date) -> None:
 
 def is_market_day(d: Optional[date] = None) -> bool:
     """한국 증시 정규 거래일이면 True."""
-    target = d or date.today()
+    target = d or datetime.now(_KST).date()
     if target.weekday() >= 5:
         return False
     if target in _KR_HOLIDAYS:
@@ -41,7 +44,7 @@ def is_market_day(d: Optional[date] = None) -> bool:
 
 def next_market_day(from_date: Optional[date] = None) -> date:
     """다음 거래일 반환 (from_date 다음날부터 탐색)."""
-    candidate = (from_date or date.today()) + timedelta(days=1)
+    candidate = (from_date or datetime.now(_KST).date()) + timedelta(days=1)
     while not is_market_day(candidate):
         candidate += timedelta(days=1)
     return candidate
@@ -49,7 +52,7 @@ def next_market_day(from_date: Optional[date] = None) -> date:
 
 def prev_market_day(from_date: Optional[date] = None) -> date:
     """직전 거래일 반환 (from_date 전날부터 탐색)."""
-    candidate = (from_date or date.today()) - timedelta(days=1)
+    candidate = (from_date or datetime.now(_KST).date()) - timedelta(days=1)
     while not is_market_day(candidate):
         candidate -= timedelta(days=1)
     return candidate

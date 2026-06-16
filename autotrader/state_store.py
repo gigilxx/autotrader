@@ -10,17 +10,20 @@ gate / idem / engine 세 객체를 한 번에 저장·복원하는 편의 함수
     save_state(engine.gate, engine.idem, engine)
 
     # 재시작 시 복원 (engine.prepare_day() 전에 호출)
-    load_state(engine.gate, engine.idem, engine, today=date.today())
+    load_state(engine.gate, engine.idem, engine, today=datetime.now(_KST).date())
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
 
 
 def save_state(gate, idem, engine) -> None:
     """gate, idem, engine의 현재 상태를 state.db에 저장."""
     sm = engine.state
-    today: date = engine._today or date.today()
+    today: date = engine._today or datetime.now(_KST).date()
     sm.save_daily_state(today, gate.trades_today, gate.realized_pnl_today)
     for oid in idem._sent:
         sm.add_sent_order(oid, today)

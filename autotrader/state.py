@@ -13,7 +13,10 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
 from pathlib import Path
 from typing import Generator, Optional
 
@@ -278,7 +281,7 @@ class StateManager:
         """30일 이전 데이터 삭제 (디스크 공간 관리)."""
         try:
             from datetime import timedelta
-            cutoff = (date.today() - timedelta(days=keep_days)).strftime("%Y%m%d")
+            cutoff = (datetime.now(_KST).date() - timedelta(days=keep_days)).strftime("%Y%m%d")
             with self._conn() as cx:
                 cx.execute("DELETE FROM daily_state WHERE date < ?", (cutoff,))
                 cx.execute("DELETE FROM sent_orders WHERE date < ?", (cutoff,))
