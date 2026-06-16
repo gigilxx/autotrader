@@ -13,7 +13,7 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 _KST = ZoneInfo("Asia/Seoul")
@@ -253,13 +253,19 @@ class StateManager:
             logger.error("control_flag 삭제 실패 key=%s: %s", key, e)
 
     def get_control_flag_with_time(self, key: str) -> Optional[dict]:
-        """control_flag의 value + updated_at 반환. 없으면 None."""
+        """control_flag의 value + updated_at(KST) 반환. 없으면 None."""
         try:
             with self._conn() as cx:
                 row = cx.execute(
                     "SELECT value, updated_at FROM control_flags WHERE key = ?", (key,)
                 ).fetchone()
-                return dict(row) if row else None
+                if not row:
+                    return None
+                result = dict(row)
+                if result.get("updated_at"):
+                    utc_ts = datetime.fromisoformat(result["updated_at"]).replace(tzinfo=timezone.utc)
+                    result["updated_at"] = utc_ts.astimezone(_KST).strftime("%Y-%m-%d %H:%M:%S")
+                return result
         except Exception as e:
             logger.warning("control_flag 조회 실패 key=%s: %s", key, e)
             return None
