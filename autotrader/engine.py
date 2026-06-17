@@ -278,7 +278,25 @@ class TradingEngine:
                     logger.info("미체결 주문 취소 %s ODNO=%s → %s", sym, odno, "성공" if ok else "실패")
                 except Exception as ce:  # noqa: BLE001
                     logger.warning("미체결 취소 실패 %s ODNO=%s: %s", sym, odno, ce)
-                filled_qty = 0
+                    ok = False
+
+                if ok:
+                    filled_qty = 0
+                else:
+                    # 취소 실패 — 그 사이 체결됐을 수 있으니 재조회로 확정 (추정만으로 0 단정 금지)
+                    try:
+                        recheck = self.router.broker.get_order_fill(odno, sym)
+                    except Exception as re_:  # noqa: BLE001
+                        logger.warning("취소 실패 후 재조회 실패 %s: %s — 요청 수량으로 가정", sym, re_)
+                        recheck = None
+                    if recheck is None:
+                        pass  # filled_qty는 기본값(req_qty) 유지 — 미추적 포지션 방지
+                    elif recheck.filled_qty > 0:
+                        filled_qty = recheck.filled_qty
+                        fill_price = recheck.avg_price if recheck.avg_price > 0 else float(fallback_px)
+                        logger.warning("취소 실패했으나 체결 확인됨 %s: %d주 @ %s", sym, filled_qty, fill_price)
+                    else:
+                        filled_qty = 0
         except Exception as e:  # noqa: BLE001
             logger.warning("체결 조회 실패 %s: %s — 요청 수량으로 가정", sym, e)
         return filled_qty, fill_price
