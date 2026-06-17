@@ -24,6 +24,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import holidays
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from .alerts import build_alert_sender
@@ -137,7 +138,9 @@ def main() -> None:
         logger.info("관심종목 (ENV): %s", watchlist)
 
     engine = build_engine(watchlist)
-    scheduler = BlockingScheduler(timezone=KST)
+    # executor를 워커 1개로 고정 — 서로 다른 job(tick/reconcile/control_check)이
+    # 별 스레드에서 동시 실행되며 engine.local을 동시에 읽고 쓰는 race를 차단
+    scheduler = BlockingScheduler(timezone=KST, executors={"default": ThreadPoolExecutor(1)})
 
     def _guard(fn):
         """예외가 스케줄러를 죽이지 않도록 감싼다."""
