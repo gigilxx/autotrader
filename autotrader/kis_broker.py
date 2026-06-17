@@ -37,7 +37,7 @@ _KST = ZoneInfo("Asia/Seoul")
 _PROD_URL = "https://openapi.koreainvestment.com:9443"
 _VPS_URL  = "https://openapivts.koreainvestment.com:29443"
 
-_MIN_INTERVAL = {Environment.REAL: 0.05, Environment.MOCK: 0.5}
+_MIN_INTERVAL = {Environment.REAL: 0.05, Environment.MOCK: 1.05}  # 모의 서버 실제 한도는 초당 1건
 
 _TOKEN_CACHE_FILE = Path(os.getenv("TOKEN_CACHE_FILE", "_token_cache.json"))
 

@@ -42,10 +42,10 @@ autotrader/telegram_control.py — 텔레그램 제어 봇 (별도 실행)
 
 | 항목 | 값 | 이유 |
 |---|---|---|
-| KIS 모의 rate limit | 0.5초/콜 | `_throttle()` lock 안에서 sleep → 사실상 직렬 |
+| KIS 모의 rate limit | 1.05초/콜 | `_throttle()` lock 안에서 sleep → 사실상 직렬. 모의 서버 실제 한도는 초당 1건이라 0.5초로는 EGW00201(초당 거래건수 초과) 빈발 (2026-06-17 확인) |
 | KIS 실전 rate limit | 0.05초/콜 | |
-| `POLL_INTERVAL_SEC` | 기본 2초 | `run.py:46` `os.getenv("POLL_SEC","2")` |
-| 모의 종목 상한 | **4개** | 2초 ÷ 0.5초/콜 = 4콜 |
+| `POLL_INTERVAL_SEC` | `.env` 기본 5초 | `run.py:46` `os.getenv("POLL_SEC","2")` — 코드 기본값은 2초지만 `.env`에서 5초로 오버라이드 |
+| 모의 종목 상한 | **4개** | 5초 ÷ 1.05초/콜 ≈ 4콜 |
 | `max_workers` | `min(N,2)` | rate limit 대비 |
 | `BlockingScheduler` | 단일 스레드 | 잡 간 race condition 없음 |
 
