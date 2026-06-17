@@ -35,6 +35,7 @@ from .volatility_breakout import (
     BreakoutDetector,
     compute_target_price,
     entry_allowed_by_time,
+    round_up_to_tick,
     should_force_close,
     stop_price_of,
 )
@@ -228,7 +229,7 @@ class TradingEngine:
         stop = stop_price_of(px, self.cfg.risk.stop_loss_pct)
         # marketable limit — 돌파 감지 가격 그대로 지정가를 걸면 그 사이 가격이 더 올라가
         # 체결이 잘 안 됨(2026-06-17 실측). 약간의 버퍼를 더해 체결률을 높이되 상한은 유지.
-        limit_price = int(px * (1 + self.cfg.strategy.entry_price_buffer_pct))
+        limit_price = round_up_to_tick(int(px * (1 + self.cfg.strategy.entry_price_buffer_pct)))
         try:
             account = self.router.broker.get_account()
             available_cash = account.cash
@@ -462,7 +463,7 @@ class TradingEngine:
             return
 
         stop = stop_price_of(px, self.cfg.risk.stop_loss_pct)
-        limit_price = int(px * (1 + self.cfg.strategy.entry_price_buffer_pct))
+        limit_price = round_up_to_tick(int(px * (1 + self.cfg.strategy.entry_price_buffer_pct)))
         try:
             account = self.router.broker.get_account()
             available_cash = account.cash

@@ -51,6 +51,26 @@ def stop_price_of(entry_price: int, stop_loss_pct: float) -> int:
     return int(entry_price * (1 - stop_loss_pct))
 
 
+_TICK_BANDS = (
+    (2_000, 1),
+    (5_000, 5),
+    (20_000, 10),
+    (50_000, 50),
+    (200_000, 100),
+    (500_000, 500),
+)  # KRX 호가단위(상한 미만 구간). 500,000원 이상은 1,000원.
+
+
+def round_up_to_tick(price: int) -> int:
+    """KRX 호가단위에 맞춰 올림 — 지정가 주문이 호가단위를 안 지키면 거부됨(40030000)."""
+    tick = 1_000
+    for threshold, t in _TICK_BANDS:
+        if price < threshold:
+            tick = t
+            break
+    return -(-price // tick) * tick
+
+
 def should_stop_loss(entry_price: int, current_price: int, stop_loss_pct: float) -> bool:
     """현재가가 손절선 이하인지."""
     return current_price <= stop_price_of(entry_price, stop_loss_pct)
