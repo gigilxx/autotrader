@@ -395,6 +395,39 @@ class TradingEngine:
                 logger.warning("청산 실패 %s — 1초 후 재시도 (%d/%d)", sym, attempt, _MAX_EXIT_RETRY)
                 _time.sleep(1)
 
+        # 재시도를 다 소진했어도 "체결 확인에 실패한 것"과 "실제로 안 팔린 것"은 다르다.
+        # 브로커 잔고를 직접 한 번 더 봐서, 사실은 이미 체결됐는데 우리 쪽 조회만 실패한
+        # 경우(레이트리밋 등)라면 local을 그대로 둬서 잔고대조가 영원히 같은 불일치를
+        # 재보고하는 사고(2026-06-17 000660)를 막는다.
+        try:
+            broker_acct = self.router.broker.get_account()
+            broker_qty = broker_acct.positions.get(sym, Position(sym, 0, 0)).qty
+        except Exception as e:  # noqa: BLE001
+            logger.error("청산 실패 후 잔고 재확인도 실패 %s: %s", sym, e)
+            broker_qty = pos.qty  # 확인 불가 — 기존처럼 안전하게 "아직 있다"고 가정
+
+        if broker_qty < pos.qty:
+            sold_qty = pos.qty - broker_qty
+            logger.warning("청산 재확인: 브로커 기준 %d주 실제로는 체결됨 %s — local 보정", sold_qty, sym)
+            pnl = net_pnl(pos.entry_price, px, sold_qty, self.cfg.cost)
+            self.gate.register_realized_pnl(pnl)
+            today_d = self._today or datetime.now(_KST).date()
+            exit_time = _now_hms()
+            if broker_qty > 0:
+                pos.qty = broker_qty
+                self.state.save_position(today_d, sym, pos.entry_price, broker_qty)
+            else:
+                self.state.delete_position(today_d, sym)
+                del self.local[sym]
+            self.state.save_daily_state(today_d, self.gate.trades_today, self.gate.realized_pnl_today)
+            self.state.record_trade(today_d, exit_time, sym, pos.entry_price, px, sold_qty, pnl, reason)
+            self.reporter.record(TradeRecord(
+                symbol=sym, entry_price=pos.entry_price, exit_price=px,
+                qty=sold_qty, pnl=pnl, reason=reason, exit_time=exit_time,
+            ))
+            self.alert.send(f"청산 {sym} {sold_qty}주 @ {px:,}원 ({reason}, 체결조회 실패 후 잔고로 확정) 손익 {pnl:,}원")
+            return
+
         msg = f"{sym} 청산 {_MAX_EXIT_RETRY}회 실패 ({reason})"
         logger.error("긴급: %s", msg)
         self.alert.send_urgent(f"긴급: {msg} — 즉시 확인 필요")
