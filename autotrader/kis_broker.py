@@ -39,6 +39,11 @@ _VPS_URL  = "https://openapivts.koreainvestment.com:29443"
 
 _MIN_INTERVAL = {Environment.REAL: 0.05, Environment.MOCK: 1.05}  # 모의 서버 실제 한도는 초당 1건
 
+# 봇 프로세스와 UI(FastAPI) 프로세스가 별도 KISBroker 인스턴스를 쓰면서
+# throttle이 서로 안 맞아 초당 거래건수 한도에 부딪힐 수 있음 — 조회(GET)는 재시도로 흡수
+_RATE_LIMIT_CODES = ("EGW00201", "EGW00215")
+_RATE_LIMIT_RETRIES = 2
+
 _TOKEN_CACHE_FILE = Path(os.getenv("TOKEN_CACHE_FILE", "_token_cache.json"))
 
 
@@ -134,19 +139,23 @@ class KISBroker:
             self._last_call = time.monotonic()
 
     def _get(self, path: str, tr_id: str, params: dict) -> dict:
-        self._throttle()
-        try:
-            r = requests.get(
-                f"{self.base_url}{path}",
-                headers=self._headers(tr_id),
-                params=params,
-                timeout=30,
-            )
-        except requests.RequestException as e:
-            raise KISError(f"GET 실패 {path}: {e}") from e
-        if r.status_code != 200:
+        for attempt in range(_RATE_LIMIT_RETRIES + 1):
+            self._throttle()
+            try:
+                r = requests.get(
+                    f"{self.base_url}{path}",
+                    headers=self._headers(tr_id),
+                    params=params,
+                    timeout=30,
+                )
+            except requests.RequestException as e:
+                raise KISError(f"GET 실패 {path}: {e}") from e
+            if r.status_code == 200:
+                return r.json()
+            if attempt < _RATE_LIMIT_RETRIES and any(c in r.text for c in _RATE_LIMIT_CODES):
+                time.sleep(_MIN_INTERVAL[self.creds.env])
+                continue
             raise KISError(f"GET {path} 실패: {r.status_code} {r.text}")
-        return r.json()
 
     def _post(self, path: str, tr_id: str, body: dict) -> dict:
         self._throttle()
