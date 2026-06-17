@@ -69,6 +69,25 @@ export interface StockInfo {
   market: string;
 }
 
+export interface AccountPosition {
+  symbol: string;
+  qty: number;
+  avg_price: number;
+  current_price: number;
+  eval_amount: number;
+  eval_pnl: number;
+  eval_pnl_rate: number;
+}
+
+export interface AccountInfo {
+  cash: number;
+  total_eval_amount: number;
+  net_asset: number;
+  total_pnl: number;
+  positions: AccountPosition[];
+  fetched_at: string;
+}
+
 async function _get<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: 0 } });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
@@ -118,5 +137,6 @@ export const api = {
   searchStocks:  (q: string) => _get<{ stocks: StockInfo[] }>(`/stocks/search?q=${encodeURIComponent(q)}`),
   stocksInfo:    (codes: string[]) => _get<{ info: Record<string, { name: string; market: string }> }>(`/stocks/info?codes=${codes.join(",")}`),
   ranking:       (type: "volume" | "amount" | "surge") => _get<{ stocks: RankingStock[]; fetched_at: string }>(`/ranking/${type}`),
+  account:       () => _get<AccountInfo>("/account"),
   wsUrl:         () => `${API.replace(/^http/, "ws")}/ws/status`,
 };

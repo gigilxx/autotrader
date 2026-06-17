@@ -62,6 +62,10 @@ class Position:
     symbol: str
     qty: int
     avg_price: float
+    current_price: int = 0     # 현재가 (KIS prpr) — 0이면 미조회
+    eval_amount: int = 0       # 평가금액 (KIS evlu_amt)
+    eval_pnl: int = 0          # 평가손익 (KIS evlu_pfls_amt)
+    eval_pnl_rate: float = 0.0  # 평가손익률(%) (KIS evlu_pfls_rt)
 
 
 @dataclass
@@ -69,6 +73,9 @@ class AccountSnapshot:
     """특정 시점의 계좌 스냅샷."""
     cash: int
     positions: dict[str, Position] = field(default_factory=dict)
+    total_eval_amount: int = 0  # 총평가금액 (KIS tot_evlu_amt) — 예수금+보유종목평가액
+    net_asset: int = 0          # 순자산 (KIS nass_amt)
+    total_pnl: int = 0          # 평가손익합계 (KIS evlu_pfls_smtl_amt)
 
     def position_count(self) -> int:
         """보유 수량이 1 이상인 종목 수."""

@@ -7,6 +7,7 @@
 
 엔드포인트:
     GET  /status                봇 상태
+    GET  /account                KIS 실계좌 잔고 (예수금·총평가금액·평가손익, 30초 캐시)
     GET  /positions             현재 보유 포지션
     GET  /pnl/today             오늘 손익·거래횟수·남은 한도
     GET  /trades                오늘 거래 내역
@@ -77,6 +78,33 @@ def _get_ranking_data(rank_type: str) -> tuple[list[dict], str]:
     data = [dataclasses.asdict(s) for s in stocks]
     fetched_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
     _ranking_cache[rank_type] = (now, data, fetched_at)
+    return data, fetched_at
+
+
+# ─── 계좌 조회 (KIS 직접 호출, 30초 캐시) ───────────────────
+_account_cache: tuple[float, dict, str] | None = None
+_ACCOUNT_TTL = 30.0
+
+def _get_account_data() -> tuple[dict, str]:
+    """(account_dict, fetched_at_kst) 반환. 30초 캐시 — 봇 프로세스의 KIS 폴링과 충돌 방지."""
+    global _account_cache
+    now = _time.monotonic()
+    if _account_cache is not None:
+        ts, data, fetched_at = _account_cache
+        if now - ts < _ACCOUNT_TTL:
+            return data, fetched_at
+    from autotrader.kis_broker import KISBroker, credentials_from_env
+    broker = KISBroker(credentials_from_env())
+    acct = broker.get_account()
+    data = {
+        "cash": acct.cash,
+        "total_eval_amount": acct.total_eval_amount,
+        "net_asset": acct.net_asset,
+        "total_pnl": acct.total_pnl,
+        "positions": [dataclasses.asdict(p) for p in acct.positions.values()],
+    }
+    fetched_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
+    _account_cache = (now, data, fetched_at)
     return data, fetched_at
 
 app = FastAPI(title="AutoTrader API", version="1.0")
@@ -173,6 +201,16 @@ def get_status() -> dict:
 def get_positions() -> dict:
     s = _get_status_dict()
     return {"positions": s.get("positions", [])}
+
+
+@app.get("/account")
+def get_account() -> dict:
+    """KIS 실제 계좌 잔고 (예수금·총평가금액·보유종목 평가손익). 30초 캐시."""
+    try:
+        data, fetched_at = _get_account_data()
+        return {**data, "fetched_at": fetched_at}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.get("/pnl/today")

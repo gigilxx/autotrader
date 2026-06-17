@@ -223,8 +223,8 @@ class KISBroker:
     def get_account(self) -> AccountSnapshot:
         """주식잔고조회. tr_id: 실전 TTTC8434R / 모의 VTTC8434R.
 
-        output1 = 보유종목 목록, output2 = 계좌요약(예수금).
-        필드 확정: dnca_tot_amt / pdno / hldg_qty / pchs_avg_pric
+        output1 = 보유종목 목록(prpr/evlu_amt/evlu_pfls_amt/evlu_pfls_rt 포함),
+        output2 = 계좌요약(dnca_tot_amt/tot_evlu_amt/nass_amt/evlu_pfls_smtl_amt).
         ⚠️ 보유종목이 많으면 연속조회(tr_cont) 필요(현재 미구현, 소규모 계좌 가정).
         """
         path = "/uapi/domestic-stock/v1/trading/inquire-balance"
@@ -257,8 +257,18 @@ class KISBroker:
                 symbol=symbol,
                 qty=qty,
                 avg_price=float(row.get("pchs_avg_pric", "0") or "0"),
+                current_price=int(float(row.get("prpr", "0") or "0")),
+                eval_amount=int(float(row.get("evlu_amt", "0") or "0")),
+                eval_pnl=int(float(row.get("evlu_pfls_amt", "0") or "0")),
+                eval_pnl_rate=float(row.get("evlu_pfls_rt", "0") or "0"),
             )
-        return AccountSnapshot(cash=cash, positions=positions)
+        return AccountSnapshot(
+            cash=cash,
+            positions=positions,
+            total_eval_amount=int(float(out2[0].get("tot_evlu_amt", "0") or "0")),
+            net_asset=int(float(out2[0].get("nass_amt", "0") or "0")),
+            total_pnl=int(float(out2[0].get("evlu_pfls_smtl_amt", "0") or "0")),
+        )
 
     # ---------------- 주문 ----------------
     def send_order(self, order: OrderRequest) -> str:
