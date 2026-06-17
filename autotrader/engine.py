@@ -339,38 +339,56 @@ class TradingEngine:
             logger.info("청산(%s) %s qty=%d 시도%d → %s", reason, sym, pos.qty, attempt, d.approved)
             if d.approved:
                 actual_px = px
+                filled_qty = pos.qty  # ODNO 없는 극단적 경우엔 확인 불가 — 요청 수량 그대로 가정
                 if d.odno:
                     try:
                         fill = self.router.broker.wait_for_fill(d.odno, sym, pos.qty)
+                        filled_qty = fill.filled_qty
                         if fill.avg_price > 0:
                             actual_px = int(fill.avg_price)
                     except Exception as e:
-                        logger.warning("청산 체결가 조회 실패 %s — 현재가로 대체: %s", sym, e)
+                        # 체결 여부를 확인 못 했으면 "성공"으로 단정하지 않는다 — 미체결 포지션이
+                        # local에서 사라지는 게 가장 위험함(재시도 루프가 멱등성 차단으로 자연스럽게
+                        # 빠져나가 결국 킬스위치 트립 + 긴급 알림으로 이어짐).
+                        logger.warning("청산 체결 조회 실패 %s — 재시도: %s", sym, e)
+                        filled_qty = 0
 
-                pnl = net_pnl(pos.entry_price, actual_px, pos.qty, self.cfg.cost)
+                if filled_qty <= 0:
+                    logger.warning("청산 미체결 확인 %s — 재시도 (%d/%d)", sym, attempt, _MAX_EXIT_RETRY)
+                    if attempt < _MAX_EXIT_RETRY:
+                        _time.sleep(1)
+                    continue
+
+                pnl = net_pnl(pos.entry_price, actual_px, filled_qty, self.cfg.cost)
                 self.gate.register_realized_pnl(pnl)
 
                 today_d = self._today or datetime.now(_KST).date()
                 exit_time = _now_hms()
-                self.state.delete_position(today_d, sym)
+                remaining = pos.qty - filled_qty
+                if remaining > 0:
+                    logger.warning("청산 부분 체결 %s: %d/%d주 — 잔량 local 유지", sym, filled_qty, pos.qty)
+                    pos.qty = remaining
+                    self.state.save_position(today_d, sym, pos.entry_price, remaining)
+                else:
+                    self.state.delete_position(today_d, sym)
+                    del self.local[sym]
                 self.state.save_daily_state(
                     today_d, self.gate.trades_today, self.gate.realized_pnl_today
                 )
                 self.state.record_trade(
                     today_d, exit_time, sym,
-                    pos.entry_price, actual_px, pos.qty, pnl, reason,
+                    pos.entry_price, actual_px, filled_qty, pnl, reason,
                 )
                 self.reporter.record(TradeRecord(
                     symbol=sym,
                     entry_price=pos.entry_price,
                     exit_price=actual_px,
-                    qty=pos.qty,
+                    qty=filled_qty,
                     pnl=pnl,
                     reason=reason,
                     exit_time=exit_time,
                 ))
-                del self.local[sym]
-                self.alert.send(f"청산 {sym} {pos.qty}주 @ {actual_px:,}원 ({reason}) 손익 {pnl:,}원")
+                self.alert.send(f"청산 {sym} {filled_qty}주 @ {actual_px:,}원 ({reason}) 손익 {pnl:,}원")
                 return
 
             if attempt < _MAX_EXIT_RETRY:
