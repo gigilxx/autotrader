@@ -13,8 +13,8 @@ from .models import Environment
 
 @dataclass
 class RiskConfig:
-    """리스크 한도. 자본 200~300만원 기준 보수적 기본값."""
-    capital: int = 2_500_000           # 운용 자본(원)
+    """리스크 한도."""
+    capital: int = 30_000_000          # 운용 자본(원)
     risk_per_trade_pct: float = 0.01   # 1회 매매 리스크 = 자본의 1%
     stop_loss_pct: float = 0.02        # 손절 -2%
     daily_max_loss_pct: float = 0.03   # 일일 최대손실 -3% → 당일 중단
