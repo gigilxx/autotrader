@@ -46,6 +46,7 @@ class CostConfig:
 class StrategyConfig:
     """변동성 돌파 전략 파라미터."""
     k: float = 0.5                        # 돌파 계수
+    entry_price_buffer_pct: float = 0.003  # 진입 지정가 버퍼(체결률 향상용 marketable limit)
     force_close_time: time = time(15, 15)  # 마감 전 강제청산 시각
     entry_cutoff_time: time = time(14, 30)  # 이 시각 이후 신규 진입 금지
     use_market_filter: bool = True         # 시장 필터 사용 여부

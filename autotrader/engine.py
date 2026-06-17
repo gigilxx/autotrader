@@ -226,6 +226,9 @@ class TradingEngine:
             return
 
         stop = stop_price_of(px, self.cfg.risk.stop_loss_pct)
+        # marketable limit — 돌파 감지 가격 그대로 지정가를 걸면 그 사이 가격이 더 올라가
+        # 체결이 잘 안 됨(2026-06-17 실측). 약간의 버퍼를 더해 체결률을 높이되 상한은 유지.
+        limit_price = int(px * (1 + self.cfg.strategy.entry_price_buffer_pct))
         try:
             account = self.router.broker.get_account()
             available_cash = account.cash
@@ -233,20 +236,20 @@ class TradingEngine:
             account = None
             available_cash = self.cfg.risk.capital
 
-        sizing = calc_position_size(px, stop, available_cash, self.cfg.risk)
+        sizing = calc_position_size(limit_price, stop, available_cash, self.cfg.risk)
         if sizing.qty <= 0:
             logger.info("사이징 0 — 진입 보류 %s (%s)", sym, sizing.reason)
             return
 
         oid = IdempotencyGuard.make_order_id(sym, "buy", _bar_ts(), "entry")
-        order = OrderRequest(sym, Side.BUY, sizing.qty, px, oid, "breakout_entry")
+        order = OrderRequest(sym, Side.BUY, sizing.qty, limit_price, oid, "breakout_entry")
         d = self.router.place(order, prefetched_account=account)
-        logger.info("진입 시도 %s qty=%d → %s (%s)", sym, sizing.qty, d.approved, d.reason)
+        logger.info("진입 시도 %s qty=%d @ %d → %s (%s)", sym, sizing.qty, limit_price, d.approved, d.reason)
 
         if not d.approved:
             return
 
-        filled_qty, fill_price = self._resolve_buy_fill(d.odno, sym, sizing.qty, px)
+        filled_qty, fill_price = self._resolve_buy_fill(d.odno, sym, sizing.qty, limit_price)
         if filled_qty <= 0:
             logger.warning("체결 수량 0 — 진입 취소 %s", sym)
             return
@@ -459,6 +462,7 @@ class TradingEngine:
             return
 
         stop = stop_price_of(px, self.cfg.risk.stop_loss_pct)
+        limit_price = int(px * (1 + self.cfg.strategy.entry_price_buffer_pct))
         try:
             account = self.router.broker.get_account()
             available_cash = account.cash
@@ -466,22 +470,22 @@ class TradingEngine:
             account = None
             available_cash = self.cfg.risk.capital
 
-        sizing = calc_position_size(px, stop, available_cash, self.cfg.risk)
+        sizing = calc_position_size(limit_price, stop, available_cash, self.cfg.risk)
         if sizing.qty <= 0:
             logger.warning("강제 진입 사이징 0 — %s (%s)", sym, sizing.reason)
             return
 
         oid = IdempotencyGuard.make_order_id(sym, "buy", _bar_ts(), "force_entry")
-        order = OrderRequest(sym, Side.BUY, sizing.qty, px, oid, "force_entry")
+        order = OrderRequest(sym, Side.BUY, sizing.qty, limit_price, oid, "force_entry")
         d = self.router.place(order, prefetched_account=account)
-        logger.info("강제 진입 시도 %s qty=%d @ %d → %s", sym, sizing.qty, px, d.approved)
+        logger.info("강제 진입 시도 %s qty=%d @ %d → %s", sym, sizing.qty, limit_price, d.approved)
 
         if not d.approved:
             logger.warning("강제 진입 거부 %s: %s", sym, d.reason)
             return
 
         # B-1: 체결 확인 후 포지션 기록
-        filled_qty, fill_price = self._resolve_buy_fill(d.odno, sym, sizing.qty, px)
+        filled_qty, fill_price = self._resolve_buy_fill(d.odno, sym, sizing.qty, limit_price)
         if filled_qty <= 0:
             logger.warning("강제 진입 체결 수량 0 — %s", sym)
             return
